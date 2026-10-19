@@ -13,9 +13,11 @@
     --piece: #fbe9c4;
     --piece-edge: #8a6326;
     --select: #2f7de1;
+    --hand: #e6d6b3;
+    --w: min(92vw, 48vh, 480px);
   }
   * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; }
+  html, body { margin: 0; min-height: 100%; }
   body {
     background: var(--bg);
     font-family: "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif;
@@ -23,7 +25,7 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 12px;
+    gap: 8px;
     padding: 12px 16px;
     -webkit-user-select: none;
     user-select: none;
@@ -33,14 +35,14 @@
     display: grid;
     grid-template-columns: repeat(8, 1fr);
     gap: 6px;
-    width: min(92vw, 60vh, 480px);
+    width: var(--w);
   }
-  .palette.gote .piece { transform: rotate(180deg); }
+  .gote .piece { transform: rotate(180deg); }
   .board {
     display: grid;
     grid-template-columns: repeat(9, minmax(0, 1fr));
     grid-template-rows: repeat(9, minmax(0, 1fr));
-    width: min(92vw, 60vh, 480px);
+    width: var(--w);
     aspect-ratio: 1;
     background: var(--board);
     border: 2px solid var(--line);
@@ -65,40 +67,92 @@
     background: var(--piece);
     border: 1px solid var(--piece-edge);
     clip-path: polygon(50% 0, 85% 15%, 100% 100%, 0 100%, 15% 15%);
-    font-size: min(4.6vw, 3.1vh, 24px);
+    font-size: min(4.6vw, 2.6vh, 24px);
     font-weight: bold;
     line-height: 1;
     color: #222;
   }
   .piece.promoted { color: #c0201a; }
-  .cell.gote .piece { transform: rotate(180deg); }
-  .palette .slot {
+  .slot {
     aspect-ratio: 0.9;
     display: flex;
     align-items: center;
     justify-content: center;
     border-radius: 6px;
     cursor: pointer;
+    position: relative;
   }
-  .palette .slot .piece { width: 90%; font-size: min(5vw, 3.4vh, 26px); }
-  .palette .slot.selected { background: var(--select); }
+  .slot .piece { width: 90%; font-size: min(5vw, 2.8vh, 26px); }
+  .slot.selected { background: var(--select); }
+  .hand {
+    display: flex;
+    flex-wrap: wrap;
+    align-content: center;
+    gap: 4px;
+    width: var(--w);
+    min-height: calc(var(--w) / 9 + 8px);
+    padding: 4px;
+    background: var(--hand);
+    border: 1px dashed var(--piece-edge);
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .hand.gote { flex-direction: row-reverse; }
+  .hand .slot { width: calc(var(--w) / 9); }
+  .count {
+    position: absolute;
+    right: -2px;
+    bottom: -2px;
+    min-width: 16px;
+    padding: 0 3px;
+    border-radius: 8px;
+    background: #5a3d17;
+    color: #fff;
+    font: bold 11px/16px sans-serif;
+    text-align: center;
+  }
+  .hand.gote .count { right: auto; left: -2px; bottom: auto; top: -2px; }
+  .tools { display: flex; gap: 8px; }
+  .tools button {
+    font: 14px sans-serif;
+    padding: 8px 14px;
+    border: 1px solid var(--piece-edge);
+    border-radius: 6px;
+    background: var(--piece);
+    color: #222;
+    cursor: pointer;
+  }
+  .tools button.selected { background: var(--select); color: #fff; border-color: var(--select); }
   .hint { font-size: 12px; color: #6b5a3c; text-align: center; font-family: sans-serif; }
 </style>
 </head>
 <body>
-  <div class="palette gote" id="gote"></div>
+  <div class="palette gote" id="palette-gote"></div>
+  <div class="hand gote" id="hand-gote"></div>
   <div class="board" id="board"></div>
-  <div class="palette sente" id="sente"></div>
-  <div class="hint">駒をタップ → マスをタップで配置 / 駒を右クリックで成る / 空きマスを右クリックで赤くする</div>
+  <div class="hand sente" id="hand-sente"></div>
+  <div class="palette sente" id="palette-sente"></div>
+  <div class="tools">
+    <button id="btn-hon">本将棋</button>
+    <button id="btn-erase">消す</button>
+    <button id="btn-clear">全消去</button>
+  </div>
+  <div class="hint">
+    駒をタップ → マス(または持ち駒欄)をタップで配置 / 持ち駒をタップ → マスで打つ<br>
+    駒を右クリックで成る / 空きマスを右クリックで赤くする / 「消す」→ 駒をタップで消去
+  </div>
 
 <script>
   const KINDS = ["王", "飛", "角", "金", "銀", "桂", "香", "歩"];
   const PROMOTED = { "飛": "龍", "角": "馬", "銀": "全", "桂": "圭", "香": "杏", "歩": "と" };
+  const BACK_RANK = ["香", "桂", "銀", "金", "王", "金", "銀", "桂", "香"];
 
-  // board[i] = { kind, side, promoted } or null
+  // board[i] = { kind, side, promoted } or null (i = row * 9 + col, row 0 is the top)
   const board = Array(81).fill(null);
   const red = Array(81).fill(false);
-  let selected = null; // { kind, side }
+  const hands = { sente: {}, gote: {} };
+  // { from: "palette" | "hand", kind, side } or { from: "erase" } or null
+  let selected = null;
 
   const boardEl = document.getElementById("board");
 
@@ -109,24 +163,65 @@
     return el;
   }
 
-  function buildPalette(side) {
-    const el = document.getElementById(side);
+  function isSelected(from, kind, side) {
+    return selected && selected.from === from && selected.kind === kind && selected.side === side;
+  }
+
+  function toggleSelect(sel) {
+    const same = selected && selected.from === sel.from && selected.kind === sel.kind && selected.side === sel.side;
+    selected = same ? null : sel;
+    render();
+  }
+
+  function addToHand(side, kind, n) {
+    const h = hands[side];
+    h[kind] = (h[kind] || 0) + n;
+    if (h[kind] <= 0) delete h[kind];
+    if (!h[kind] && isSelected("hand", kind, side)) selected = null;
+  }
+
+  function renderPalette(side) {
+    const el = document.getElementById("palette-" + side);
+    el.innerHTML = "";
     for (const kind of KINDS) {
       const slot = document.createElement("div");
-      slot.className = "slot";
+      slot.className = "slot" + (isSelected("palette", kind, side) ? " selected" : "");
       slot.appendChild(pieceEl(kind, false));
-      slot.addEventListener("click", () => {
-        const same = selected && selected.kind === kind && selected.side === side;
-        selected = same ? null : { kind, side };
-        document.querySelectorAll(".slot").forEach(s => s.classList.remove("selected"));
-        if (!same) slot.classList.add("selected");
-      });
+      slot.addEventListener("click", () => toggleSelect({ from: "palette", kind, side }));
       slot.addEventListener("contextmenu", e => e.preventDefault());
       el.appendChild(slot);
     }
   }
 
-  function render() {
+  function renderHand(side) {
+    const el = document.getElementById("hand-" + side);
+    el.innerHTML = "";
+    for (const kind of KINDS) {
+      const n = hands[side][kind];
+      if (!n) continue;
+      const slot = document.createElement("div");
+      slot.className = "slot" + (isSelected("hand", kind, side) ? " selected" : "");
+      slot.appendChild(pieceEl(kind, false));
+      if (n > 1) {
+        const c = document.createElement("div");
+        c.className = "count";
+        c.textContent = n;
+        slot.appendChild(c);
+      }
+      slot.addEventListener("click", e => {
+        e.stopPropagation();
+        if (selected && selected.from === "erase") {
+          addToHand(side, kind, -1);
+          render();
+        } else {
+          toggleSelect({ from: "hand", kind, side });
+        }
+      });
+      el.appendChild(slot);
+    }
+  }
+
+  function renderBoard() {
     boardEl.innerHTML = "";
     for (let i = 0; i < 81; i++) {
       const cell = document.createElement("div");
@@ -138,7 +233,12 @@
       }
       cell.addEventListener("click", () => {
         if (!selected) return;
-        board[i] = { kind: selected.kind, side: selected.side, promoted: false };
+        if (selected.from === "erase") {
+          board[i] = null;
+        } else {
+          board[i] = { kind: selected.kind, side: selected.side, promoted: false };
+          if (selected.from === "hand") addToHand(selected.side, selected.kind, -1);
+        }
         render();
       });
       cell.addEventListener("contextmenu", e => {
@@ -155,8 +255,55 @@
     }
   }
 
-  buildPalette("gote");
-  buildPalette("sente");
+  function render() {
+    renderPalette("gote");
+    renderPalette("sente");
+    renderHand("gote");
+    renderHand("sente");
+    renderBoard();
+    document.getElementById("btn-erase").classList.toggle("selected", !!selected && selected.from === "erase");
+  }
+
+  for (const side of ["sente", "gote"]) {
+    document.getElementById("hand-" + side).addEventListener("click", () => {
+      if (selected && selected.from === "palette") {
+        addToHand(side, selected.kind, 1);
+        render();
+      }
+    });
+  }
+
+  function clearAll() {
+    board.fill(null);
+    red.fill(false);
+    hands.sente = {};
+    hands.gote = {};
+    selected = null;
+  }
+
+  document.getElementById("btn-hon").addEventListener("click", () => {
+    clearAll();
+    const put = (row, col, kind, side) => { board[row * 9 + col] = { kind, side, promoted: false }; };
+    for (let c = 0; c < 9; c++) {
+      put(0, c, BACK_RANK[c], "gote");
+      put(2, c, "歩", "gote");
+      put(6, c, "歩", "sente");
+      put(8, c, BACK_RANK[c], "sente");
+    }
+    put(1, 1, "飛", "gote");
+    put(1, 7, "角", "gote");
+    put(7, 1, "角", "sente");
+    put(7, 7, "飛", "sente");
+    render();
+  });
+
+  document.getElementById("btn-erase").addEventListener("click", () => toggleSelect({ from: "erase" }));
+
+  document.getElementById("btn-clear").addEventListener("click", () => {
+    clearAll();
+    render();
+  });
+
   render();
 </script>
 </body>
