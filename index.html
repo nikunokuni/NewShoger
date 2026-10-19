@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>将棋盤</title>
+<style>
+  :root {
+    --bg: #f3ead7;
+    --board: #e8c37a;
+    --line: #5a3d17;
+    --red: #f6c4c4;
+    --piece: #fbe9c4;
+    --piece-edge: #8a6326;
+    --select: #2f7de1;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg);
+    font-family: "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 12px 16px;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+  .palette {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    gap: 6px;
+    width: min(92vw, 60vh, 480px);
+  }
+  .palette.gote .piece { transform: rotate(180deg); }
+  .board {
+    display: grid;
+    grid-template-columns: repeat(9, minmax(0, 1fr));
+    grid-template-rows: repeat(9, minmax(0, 1fr));
+    width: min(92vw, 60vh, 480px);
+    aspect-ratio: 1;
+    background: var(--board);
+    border: 2px solid var(--line);
+  }
+  .cell {
+    border: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    min-width: 0;
+    min-height: 0;
+  }
+  .cell .piece { width: auto; height: 90%; }
+  .cell.red { background: var(--red); }
+  .piece {
+    width: 88%;
+    aspect-ratio: 0.9;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--piece);
+    border: 1px solid var(--piece-edge);
+    clip-path: polygon(50% 0, 85% 15%, 100% 100%, 0 100%, 15% 15%);
+    font-size: min(4.6vw, 3.1vh, 24px);
+    font-weight: bold;
+    line-height: 1;
+    color: #222;
+  }
+  .piece.promoted { color: #c0201a; }
+  .cell.gote .piece { transform: rotate(180deg); }
+  .palette .slot {
+    aspect-ratio: 0.9;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .palette .slot .piece { width: 90%; font-size: min(5vw, 3.4vh, 26px); }
+  .palette .slot.selected { background: var(--select); }
+  .hint { font-size: 12px; color: #6b5a3c; text-align: center; font-family: sans-serif; }
+</style>
+</head>
+<body>
+  <div class="palette gote" id="gote"></div>
+  <div class="board" id="board"></div>
+  <div class="palette sente" id="sente"></div>
+  <div class="hint">駒をタップ → マスをタップで配置 / 駒を右クリックで成る / 空きマスを右クリックで赤くする</div>
+
+<script>
+  const KINDS = ["王", "飛", "角", "金", "銀", "桂", "香", "歩"];
+  const PROMOTED = { "飛": "龍", "角": "馬", "銀": "全", "桂": "圭", "香": "杏", "歩": "と" };
+
+  // board[i] = { kind, side, promoted } or null
+  const board = Array(81).fill(null);
+  const red = Array(81).fill(false);
+  let selected = null; // { kind, side }
+
+  const boardEl = document.getElementById("board");
+
+  function pieceEl(kind, promoted) {
+    const el = document.createElement("div");
+    el.className = "piece" + (promoted ? " promoted" : "");
+    el.textContent = promoted ? PROMOTED[kind] : kind;
+    return el;
+  }
+
+  function buildPalette(side) {
+    const el = document.getElementById(side);
+    for (const kind of KINDS) {
+      const slot = document.createElement("div");
+      slot.className = "slot";
+      slot.appendChild(pieceEl(kind, false));
+      slot.addEventListener("click", () => {
+        const same = selected && selected.kind === kind && selected.side === side;
+        selected = same ? null : { kind, side };
+        document.querySelectorAll(".slot").forEach(s => s.classList.remove("selected"));
+        if (!same) slot.classList.add("selected");
+      });
+      slot.addEventListener("contextmenu", e => e.preventDefault());
+      el.appendChild(slot);
+    }
+  }
+
+  function render() {
+    boardEl.innerHTML = "";
+    for (let i = 0; i < 81; i++) {
+      const cell = document.createElement("div");
+      cell.className = "cell" + (red[i] ? " red" : "");
+      const p = board[i];
+      if (p) {
+        if (p.side === "gote") cell.classList.add("gote");
+        cell.appendChild(pieceEl(p.kind, p.promoted));
+      }
+      cell.addEventListener("click", () => {
+        if (!selected) return;
+        board[i] = { kind: selected.kind, side: selected.side, promoted: false };
+        render();
+      });
+      cell.addEventListener("contextmenu", e => {
+        e.preventDefault();
+        const p = board[i];
+        if (p) {
+          if (PROMOTED[p.kind]) p.promoted = !p.promoted;
+        } else {
+          red[i] = !red[i];
+        }
+        render();
+      });
+      boardEl.appendChild(cell);
+    }
+  }
+
+  buildPalette("gote");
+  buildPalette("sente");
+  render();
+</script>
+</body>
+</html>
