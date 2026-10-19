@@ -123,6 +123,46 @@
     cursor: pointer;
   }
   .tools button.selected { background: var(--select); color: #fff; border-color: var(--select); }
+  .overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+  }
+  .overlay[hidden] { display: none; }
+  .panel {
+    --w: min(80vw, 46vh, 420px);
+    background: var(--bg);
+    border-radius: 10px;
+    padding: 16px;
+    max-height: 100%;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    width: calc(var(--w) + 32px);
+    max-width: 100%;
+  }
+  .panel h2 { margin: 0; font-size: 18px; }
+  .panel .board, .panel .hand { cursor: default; }
+  .panel .cell { cursor: default; }
+  .save-list { list-style: none; margin: 0; padding: 0; width: 100%; }
+  .save-list li {
+    padding: 12px;
+    border-bottom: 1px solid var(--hand);
+    cursor: pointer;
+    font-family: sans-serif;
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .save-list li:hover { background: var(--hand); }
+  .save-list .date { color: #6b5a3c; font-size: 12px; white-space: nowrap; }
+  .empty { font-family: sans-serif; color: #6b5a3c; padding: 12px; }
   .hint { font-size: 12px; color: #6b5a3c; text-align: center; font-family: sans-serif; }
 </style>
 </head>
@@ -136,6 +176,30 @@
     <button id="btn-hon">本将棋</button>
     <button id="btn-erase">消す</button>
     <button id="btn-clear">全消去</button>
+  </div>
+  <div class="tools">
+    <button id="btn-save">保存</button>
+    <button id="btn-list">保存一覧</button>
+  </div>
+  <div class="overlay" id="list-view" hidden>
+    <div class="panel">
+      <h2>保存一覧</h2>
+      <ul class="save-list" id="save-list"></ul>
+      <div class="tools"><button data-close>閉じる</button></div>
+    </div>
+  </div>
+  <div class="overlay" id="detail-view" hidden>
+    <div class="panel">
+      <h2 id="detail-title"></h2>
+      <div class="hand gote" id="detail-hand-gote"></div>
+      <div class="board" id="detail-board"></div>
+      <div class="hand sente" id="detail-hand-sente"></div>
+      <div class="tools">
+        <button id="btn-load">この盤面を読み込む</button>
+        <button id="btn-delete">削除</button>
+        <button id="btn-back">戻る</button>
+      </div>
+    </div>
   </div>
   <div class="hint">
     駒をタップ → マス(または持ち駒欄)をタップで配置 / 持ち駒をタップ → マスで打つ<br>
@@ -302,6 +366,134 @@
   document.getElementById("btn-clear").addEventListener("click", () => {
     clearAll();
     render();
+  });
+
+  // ---- 保存 ----
+  const STORAGE_KEY = "shogi-saves";
+
+  function loadSaves() {
+    try {
+      return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function writeSaves(saves) {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(saves));
+      return true;
+    } catch (e) {
+      alert("保存できませんでした");
+      return false;
+    }
+  }
+
+  function formatDate(t) {
+    const d = new Date(t);
+    const z = n => String(n).padStart(2, "0");
+    return `${d.getFullYear()}/${z(d.getMonth() + 1)}/${z(d.getDate())} ${z(d.getHours())}:${z(d.getMinutes())}`;
+  }
+
+  document.getElementById("btn-save").addEventListener("click", () => {
+    const now = Date.now();
+    const name = prompt("保存名", formatDate(now));
+    if (name === null) return;
+    const saves = loadSaves();
+    saves.unshift({
+      id: now,
+      name: name.trim() || formatDate(now),
+      savedAt: now,
+      board: board.map(p => p && { ...p }),
+      red: [...red],
+      hands: { sente: { ...hands.sente }, gote: { ...hands.gote } },
+    });
+    if (writeSaves(saves)) alert("保存しました");
+  });
+
+  const listView = document.getElementById("list-view");
+  const detailView = document.getElementById("detail-view");
+  let current = null;
+
+  function showList() {
+    const ul = document.getElementById("save-list");
+    ul.innerHTML = "";
+    const saves = loadSaves();
+    if (!saves.length) {
+      const li = document.createElement("div");
+      li.className = "empty";
+      li.textContent = "保存された盤面はありません";
+      ul.appendChild(li);
+    }
+    for (const save of saves) {
+      const li = document.createElement("li");
+      const name = document.createElement("span");
+      name.textContent = save.name;
+      const date = document.createElement("span");
+      date.className = "date";
+      date.textContent = formatDate(save.savedAt);
+      li.append(name, date);
+      li.addEventListener("click", () => showDetail(save));
+      ul.appendChild(li);
+    }
+    detailView.hidden = true;
+    listView.hidden = false;
+  }
+
+  function showDetail(save) {
+    current = save;
+    document.getElementById("detail-title").textContent = save.name;
+    const b = document.getElementById("detail-board");
+    b.innerHTML = "";
+    save.board.forEach((p, i) => {
+      const cell = document.createElement("div");
+      cell.className = "cell" + (save.red[i] ? " red" : "");
+      if (p) {
+        if (p.side === "gote") cell.classList.add("gote");
+        cell.appendChild(pieceEl(p.kind, p.promoted));
+      }
+      b.appendChild(cell);
+    });
+    for (const side of ["sente", "gote"]) {
+      const el = document.getElementById("detail-hand-" + side);
+      el.innerHTML = "";
+      for (const kind of KINDS) {
+        const n = save.hands[side][kind];
+        if (!n) continue;
+        const slot = document.createElement("div");
+        slot.className = "slot";
+        slot.appendChild(pieceEl(kind, false));
+        if (n > 1) {
+          const c = document.createElement("div");
+          c.className = "count";
+          c.textContent = n;
+          slot.appendChild(c);
+        }
+        el.appendChild(slot);
+      }
+    }
+    listView.hidden = true;
+    detailView.hidden = false;
+  }
+
+  document.getElementById("btn-list").addEventListener("click", showList);
+  document.querySelector("#list-view [data-close]").addEventListener("click", () => { listView.hidden = true; });
+  document.getElementById("btn-back").addEventListener("click", showList);
+
+  document.getElementById("btn-load").addEventListener("click", () => {
+    clearAll();
+    current.board.forEach((p, i) => { board[i] = p && { ...p }; });
+    current.red.forEach((r, i) => { red[i] = r; });
+    hands.sente = { ...current.hands.sente };
+    hands.gote = { ...current.hands.gote };
+    detailView.hidden = true;
+    render();
+  });
+
+  document.getElementById("btn-delete").addEventListener("click", () => {
+    if (!confirm(`「${current.name}」を削除しますか？`)) return;
+    writeSaves(loadSaves().filter(s => s.id !== current.id));
+    showList();
   });
 
   render();
