@@ -215,12 +215,22 @@
       </div>
     </div>
   </div>
+  <div class="overlay" id="promote-view" hidden>
+    <div class="panel">
+      <h2>成りますか？</h2>
+      <div class="tools">
+        <button id="btn-promote">成る</button>
+        <button id="btn-no-promote">成らない</button>
+      </div>
+    </div>
+  </div>
   <div class="hint edit-only">
     【編集】駒をタップ → マス(または持ち駒欄)をタップで配置 / 駒を右クリックで成る<br>
     空きマスを右クリックでピンクにする / 「消す」→ 駒をタップで消去 / 「スタート」で開始
   </div>
   <div class="hint play-only">
     【プレイ】駒(または持ち駒)をタップ → 枠の付いたピンクのマスをタップで移動<br>
+    敵陣に入る・敵陣から出るときは成ることができます<br>
     全部のピンクのマスを青にしたらクリア
   </div>
 
@@ -311,8 +321,8 @@
     const result = [];
     for (let j = 0; j < 81; j++) {
       if (board[j] || cells[j] !== "pink") continue;
-      const col = j % 9, row = Math.floor(j / 9);
-      const rank = side === "sente" ? row : 8 - row; // 0 = 敵陣の一番奥
+      const col = j % 9;
+      const rank = rankOf({ side }, j);
       if ((kind === "歩" || kind === "香") && rank === 0) continue;
       if (kind === "桂" && rank <= 1) continue;
       if (kind === "歩" && board.some((q, k) =>
@@ -433,22 +443,68 @@
     }
     if (result) return;
     if (selected && currentTargets().includes(i)) {
-      if (selected.from === "board") {
-        board[i] = board[selected.index];
-        board[selected.index] = null;
-      } else {
+      cells[i] = "blue";
+      if (selected.from === "hand") {
         board[i] = { kind: selected.kind, side: selected.side, promoted: false };
         addToHand(selected.side, selected.kind, -1);
+        finishMove();
+        return;
       }
-      cells[i] = "blue";
-      selected = null;
-      judge();
-      render();
+      const from = selected.index;
+      const p = board[from];
+      board[i] = p;
+      board[from] = null;
+      if (mustPromote(p, i)) {
+        p.promoted = true;
+      } else if (canPromote(p, from, i)) {
+        selected = null;
+        render();
+        promoteView.hidden = false;
+        pendingPromotion = p;
+        return;
+      }
+      finishMove();
       return;
     }
     if (board[i]) toggleSelect({ from: "board", index: i });
     else if (selected) { selected = null; render(); }
   }
+
+  // 敵陣(駒の向きから見て奥の3段)での段。0 = 一番奥
+  function rankOf(p, i) {
+    const row = Math.floor(i / 9);
+    return p.side === "sente" ? row : 8 - row;
+  }
+
+  function canPromote(p, from, to) {
+    return PROMOTED[p.kind] && !p.promoted && (rankOf(p, from) <= 2 || rankOf(p, to) <= 2);
+  }
+
+  // 成らないとそれ以上動けない場合は強制的に成る
+  function mustPromote(p, to) {
+    if (p.promoted) return false;
+    const rank = rankOf(p, to);
+    return ((p.kind === "歩" || p.kind === "香") && rank === 0) || (p.kind === "桂" && rank <= 1);
+  }
+
+  const promoteView = document.getElementById("promote-view");
+  let pendingPromotion = null;
+
+  function finishMove() {
+    selected = null;
+    judge();
+    render();
+  }
+
+  function answerPromotion(yes) {
+    if (yes) pendingPromotion.promoted = true;
+    pendingPromotion = null;
+    promoteView.hidden = true;
+    finishMove();
+  }
+
+  document.getElementById("btn-promote").addEventListener("click", () => answerPromotion(true));
+  document.getElementById("btn-no-promote").addEventListener("click", () => answerPromotion(false));
 
   function renderBoard() {
     boardEl.innerHTML = "";
