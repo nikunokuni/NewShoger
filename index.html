@@ -190,6 +190,7 @@
   <div class="tools edit-only">
     <button id="btn-save">保存</button>
     <button id="btn-list">保存一覧</button>
+    <button id="btn-update">最新版に更新</button>
   </div>
   <div class="tools play-only">
     <button id="btn-retry">やり直し</button>
@@ -724,6 +725,25 @@
     if (!confirm(`「${current.name}」を削除しますか？`)) return;
     writeSaves(loadSaves().filter(s => s.id !== current.id));
     showList();
+  });
+
+  // ---- キャッシュ更新 ----
+  // 保存データ(localStorage)は消さずに、キャッシュを捨てて最新版を読み込み直す
+  document.getElementById("btn-update").addEventListener("click", async () => {
+    try {
+      if ("serviceWorker" in navigator) {
+        for (const reg of await navigator.serviceWorker.getRegistrations()) await reg.unregister();
+      }
+      if ("caches" in window) {
+        for (const key of await caches.keys()) await caches.delete(key);
+      }
+      await fetch(location.pathname, { cache: "reload" });
+    } catch (e) {
+      // オフラインなどで失敗しても再読み込みは行う
+    }
+    const url = new URL(location.href);
+    url.searchParams.set("v", Date.now());
+    location.replace(url);
   });
 
   render();
