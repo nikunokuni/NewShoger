@@ -10,6 +10,7 @@
     --board: #e8c37a;
     --line: #5a3d17;
     --red: #f6c4c4;
+    --blue: #a9cdf5;
     --piece: #fbe9c4;
     --piece-edge: #8a6326;
     --select: #2f7de1;
@@ -163,23 +164,36 @@
   .save-list li:hover { background: var(--hand); }
   .save-list .date { color: #6b5a3c; font-size: 12px; white-space: nowrap; }
   .empty { font-family: sans-serif; color: #6b5a3c; padding: 12px; }
+  .cell.blue { background: var(--blue); }
+  .cell.target { box-shadow: inset 0 0 0 3px #e0457b; }
+  .cell.picked { box-shadow: inset 0 0 0 3px var(--select); }
+  .play .palette { visibility: hidden; }
+  .play .edit-only, .edit .play-only { display: none; }
+  .status { font: bold 16px sans-serif; min-height: 22px; color: #5a3d17; }
+  .status.clear { color: #1f6fd1; }
+  .status.over { color: #c0201a; }
   .hint { font-size: 12px; color: #6b5a3c; text-align: center; font-family: sans-serif; }
 </style>
 </head>
-<body>
+<body class="edit">
   <div class="palette gote" id="palette-gote"></div>
   <div class="hand gote" id="hand-gote"></div>
   <div class="board" id="board"></div>
   <div class="hand sente" id="hand-sente"></div>
   <div class="palette sente" id="palette-sente"></div>
-  <div class="tools">
-    <button id="btn-hon">本将棋</button>
+  <div class="status" id="status"></div>
+  <div class="tools edit-only">
+    <button id="btn-start">スタート</button>
     <button id="btn-erase">消す</button>
     <button id="btn-clear">全消去</button>
   </div>
-  <div class="tools">
+  <div class="tools edit-only">
     <button id="btn-save">保存</button>
     <button id="btn-list">保存一覧</button>
+  </div>
+  <div class="tools play-only">
+    <button id="btn-retry">やり直し</button>
+    <button id="btn-edit">編集に戻る</button>
   </div>
   <div class="overlay" id="list-view" hidden>
     <div class="panel">
@@ -201,25 +215,135 @@
       </div>
     </div>
   </div>
-  <div class="hint">
-    駒をタップ → マス(または持ち駒欄)をタップで配置 / 持ち駒をタップ → マスで打つ<br>
-    駒を右クリックで成る / 空きマスを右クリックで赤くする / 「消す」→ 駒をタップで消去
+  <div class="hint edit-only">
+    【編集】駒をタップ → マス(または持ち駒欄)をタップで配置 / 駒を右クリックで成る<br>
+    空きマスを右クリックでピンクにする / 「消す」→ 駒をタップで消去 / 「スタート」で開始
+  </div>
+  <div class="hint play-only">
+    【プレイ】駒(または持ち駒)をタップ → 枠の付いたピンクのマスをタップで移動<br>
+    全部のピンクのマスを青にしたらクリア
   </div>
 
 <script>
   const KINDS = ["王", "飛", "角", "金", "銀", "桂", "香", "歩"];
   const PROMOTED = { "飛": "龍", "角": "馬", "銀": "全", "桂": "圭", "香": "杏", "歩": "と" };
-  const BACK_RANK = ["香", "桂", "銀", "金", "王", "金", "銀", "桂", "香"];
+
+  // 先手から見た動き。[dx, dy] で dy < 0 が前方。
+  const KING = [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]];
+  const GOLD = [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [0, 1]];
+  const ORTHO = [[0, -1], [-1, 0], [1, 0], [0, 1]];
+  const DIAG = [[-1, -1], [1, -1], [-1, 1], [1, 1]];
+  const MOVES = {
+    "王": { step: KING },
+    "金": { step: GOLD },
+    "銀": { step: [[-1, -1], [0, -1], [1, -1], [-1, 1], [1, 1]] },
+    "桂": { step: [[-1, -2], [1, -2]] },
+    "香": { slide: [[0, -1]] },
+    "歩": { step: [[0, -1]] },
+    "飛": { slide: ORTHO },
+    "角": { slide: DIAG },
+  };
+  const PROMOTED_MOVES = {
+    "飛": { slide: ORTHO, step: DIAG },
+    "角": { slide: DIAG, step: ORTHO },
+  };
 
   // board[i] = { kind, side, promoted } or null (i = row * 9 + col, row 0 is the top)
-  const board = Array(81).fill(null);
-  const red = Array(81).fill(false);
-  const hands = { sente: {}, gote: {} };
-  // { from: "palette" | "hand", kind, side } or { from: "erase" } or null
+  // cells[i] = "" | "pink" | "blue"
+  let board = Array(81).fill(null);
+  let cells = Array(81).fill("");
+  let hands = { sente: {}, gote: {} };
+  let mode = "edit"; // "edit" | "play"
+  let result = null; // null | "clear" | "over"
+  let startState = null;
+  // edit: { from: "palette" | "hand", kind, side } or { from: "erase" }
+  // play: { from: "board", index } or { from: "hand", kind, side }
   let selected = null;
 
   const boardEl = document.getElementById("board");
 
+  function snapshot() {
+    return {
+      board: board.map(p => p && { ...p }),
+      cells: [...cells],
+      hands: { sente: { ...hands.sente }, gote: { ...hands.gote } },
+    };
+  }
+
+  function restore(state) {
+    board = state.board.map(p => p && { ...p });
+    cells = [...state.cells];
+    hands = { sente: { ...state.hands.sente }, gote: { ...state.hands.gote } };
+  }
+
+  // ---- 駒の動き ----
+  function movesFor(p) {
+    return (p.promoted && (PROMOTED_MOVES[p.kind] || MOVES["金"])) || MOVES[p.kind];
+  }
+
+  function targetsFrom(i) {
+    const p = board[i];
+    const dir = p.side === "sente" ? 1 : -1;
+    const x = i % 9, y = Math.floor(i / 9);
+    const result = [];
+    const inside = (cx, cy) => cx >= 0 && cx < 9 && cy >= 0 && cy < 9;
+    const consider = (cx, cy) => {
+      const j = cy * 9 + cx;
+      if (!board[j] && cells[j] === "pink") result.push(j);
+    };
+    const m = movesFor(p);
+    for (const [dx, dy] of m.step || []) {
+      const cx = x + dx * dir, cy = y + dy * dir;
+      if (inside(cx, cy)) consider(cx, cy);
+    }
+    for (const [dx, dy] of m.slide || []) {
+      let cx = x + dx * dir, cy = y + dy * dir;
+      while (inside(cx, cy) && !board[cy * 9 + cx]) {
+        consider(cx, cy);
+        cx += dx * dir;
+        cy += dy * dir;
+      }
+    }
+    return result;
+  }
+
+  function dropTargets(kind, side) {
+    const result = [];
+    for (let j = 0; j < 81; j++) {
+      if (board[j] || cells[j] !== "pink") continue;
+      const col = j % 9, row = Math.floor(j / 9);
+      const rank = side === "sente" ? row : 8 - row; // 0 = 敵陣の一番奥
+      if ((kind === "歩" || kind === "香") && rank === 0) continue;
+      if (kind === "桂" && rank <= 1) continue;
+      if (kind === "歩" && board.some((q, k) =>
+        q && k % 9 === col && q.kind === "歩" && !q.promoted && q.side === side)) continue;
+      result.push(j);
+    }
+    return result;
+  }
+
+  function currentTargets() {
+    if (mode !== "play" || !selected) return [];
+    if (selected.from === "board") return targetsFrom(selected.index);
+    if (selected.from === "hand") return dropTargets(selected.kind, selected.side);
+    return [];
+  }
+
+  function anyMove() {
+    for (let i = 0; i < 81; i++) if (board[i] && targetsFrom(i).length) return true;
+    for (const side of ["sente", "gote"])
+      for (const kind in hands[side])
+        if (dropTargets(kind, side).length) return true;
+    return false;
+  }
+
+  function judge() {
+    if (!cells.includes("pink")) result = "clear";
+    else if (!anyMove()) result = "over";
+    else result = null;
+  }
+
+  // ---- 描画 ----
   function pieceEl(kind, promoted) {
     const el = document.createElement("div");
     el.className = "piece" + (promoted ? " promoted" : "");
@@ -232,7 +356,7 @@
   }
 
   function toggleSelect(sel) {
-    const same = selected && selected.from === sel.from && selected.kind === sel.kind && selected.side === sel.side;
+    const same = selected && ["from", "kind", "side", "index"].every(k => selected[k] === sel[k]);
     selected = same ? null : sel;
     render();
   }
@@ -251,10 +375,25 @@
       const slot = document.createElement("div");
       slot.className = "slot" + (isSelected("palette", kind, side) ? " selected" : "");
       slot.appendChild(pieceEl(kind, false));
-      slot.addEventListener("click", () => toggleSelect({ from: "palette", kind, side }));
+      slot.addEventListener("click", () => {
+        if (mode === "edit") toggleSelect({ from: "palette", kind, side });
+      });
       slot.addEventListener("contextmenu", e => e.preventDefault());
       el.appendChild(slot);
     }
+  }
+
+  function handSlot(kind, n) {
+    const slot = document.createElement("div");
+    slot.className = "slot";
+    slot.appendChild(pieceEl(kind, false));
+    if (n > 1) {
+      const c = document.createElement("div");
+      c.className = "count";
+      c.textContent = n;
+      slot.appendChild(c);
+    }
+    return slot;
   }
 
   function renderHand(side) {
@@ -263,17 +402,11 @@
     for (const kind of KINDS) {
       const n = hands[side][kind];
       if (!n) continue;
-      const slot = document.createElement("div");
-      slot.className = "slot" + (isSelected("hand", kind, side) ? " selected" : "");
-      slot.appendChild(pieceEl(kind, false));
-      if (n > 1) {
-        const c = document.createElement("div");
-        c.className = "count";
-        c.textContent = n;
-        slot.appendChild(c);
-      }
+      const slot = handSlot(kind, n);
+      if (isSelected("hand", kind, side)) slot.classList.add("selected");
       slot.addEventListener("click", e => {
         e.stopPropagation();
+        if (mode === "play" && result) return;
         if (selected && selected.from === "erase") {
           addToHand(side, kind, -1);
           render();
@@ -285,33 +418,62 @@
     }
   }
 
+  function onCellClick(i) {
+    if (mode === "edit") {
+      if (!selected || selected.from === "board") return;
+      if (selected.from === "erase") {
+        board[i] = null;
+      } else {
+        board[i] = { kind: selected.kind, side: selected.side, promoted: false };
+        cells[i] = "";
+        if (selected.from === "hand") addToHand(selected.side, selected.kind, -1);
+      }
+      render();
+      return;
+    }
+    if (result) return;
+    if (selected && currentTargets().includes(i)) {
+      if (selected.from === "board") {
+        board[i] = board[selected.index];
+        board[selected.index] = null;
+      } else {
+        board[i] = { kind: selected.kind, side: selected.side, promoted: false };
+        addToHand(selected.side, selected.kind, -1);
+      }
+      cells[i] = "blue";
+      selected = null;
+      judge();
+      render();
+      return;
+    }
+    if (board[i]) toggleSelect({ from: "board", index: i });
+    else if (selected) { selected = null; render(); }
+  }
+
   function renderBoard() {
     boardEl.innerHTML = "";
+    const targets = currentTargets();
     for (let i = 0; i < 81; i++) {
       const cell = document.createElement("div");
-      cell.className = "cell" + (red[i] ? " red" : "");
+      cell.className = "cell";
+      if (cells[i] === "pink") cell.classList.add("red");
+      if (cells[i] === "blue") cell.classList.add("blue");
+      if (targets.includes(i)) cell.classList.add("target");
+      if (selected && selected.from === "board" && selected.index === i) cell.classList.add("picked");
       const p = board[i];
       if (p) {
         if (p.side === "gote") cell.classList.add("gote");
         cell.appendChild(pieceEl(p.kind, p.promoted));
       }
-      cell.addEventListener("click", () => {
-        if (!selected) return;
-        if (selected.from === "erase") {
-          board[i] = null;
-        } else {
-          board[i] = { kind: selected.kind, side: selected.side, promoted: false };
-          if (selected.from === "hand") addToHand(selected.side, selected.kind, -1);
-        }
-        render();
-      });
+      cell.addEventListener("click", () => onCellClick(i));
       cell.addEventListener("contextmenu", e => {
         e.preventDefault();
+        if (mode !== "edit") return;
         const p = board[i];
         if (p) {
           if (PROMOTED[p.kind]) p.promoted = !p.promoted;
         } else {
-          red[i] = !red[i];
+          cells[i] = cells[i] === "pink" ? "" : "pink";
         }
         render();
       });
@@ -319,18 +481,36 @@
     }
   }
 
+  function renderStatus() {
+    const el = document.getElementById("status");
+    el.className = "status";
+    if (mode !== "play") {
+      el.textContent = "";
+    } else if (result === "clear") {
+      el.textContent = "クリア！";
+      el.classList.add("clear");
+    } else if (result === "over") {
+      el.textContent = "ゲームオーバー（動けるマスがありません）";
+      el.classList.add("over");
+    } else {
+      el.textContent = `残りのピンク: ${cells.filter(c => c === "pink").length}`;
+    }
+  }
+
   function render() {
+    document.body.className = mode;
     renderPalette("gote");
     renderPalette("sente");
     renderHand("gote");
     renderHand("sente");
     renderBoard();
+    renderStatus();
     document.getElementById("btn-erase").classList.toggle("selected", !!selected && selected.from === "erase");
   }
 
   for (const side of ["sente", "gote"]) {
     document.getElementById("hand-" + side).addEventListener("click", () => {
-      if (selected && selected.from === "palette") {
+      if (mode === "edit" && selected && selected.from === "palette") {
         addToHand(side, selected.kind, 1);
         render();
       }
@@ -338,26 +518,37 @@
   }
 
   function clearAll() {
-    board.fill(null);
-    red.fill(false);
-    hands.sente = {};
-    hands.gote = {};
+    board = Array(81).fill(null);
+    cells = Array(81).fill("");
+    hands = { sente: {}, gote: {} };
     selected = null;
   }
 
-  document.getElementById("btn-hon").addEventListener("click", () => {
-    clearAll();
-    const put = (row, col, kind, side) => { board[row * 9 + col] = { kind, side, promoted: false }; };
-    for (let c = 0; c < 9; c++) {
-      put(0, c, BACK_RANK[c], "gote");
-      put(2, c, "歩", "gote");
-      put(6, c, "歩", "sente");
-      put(8, c, BACK_RANK[c], "sente");
+  document.getElementById("btn-start").addEventListener("click", () => {
+    const hasPiece = board.some(Boolean) || Object.keys(hands.sente).length || Object.keys(hands.gote).length;
+    if (!hasPiece || !cells.includes("pink")) {
+      alert("駒とピンクのマスを1つ以上置いてください");
+      return;
     }
-    put(1, 1, "飛", "gote");
-    put(1, 7, "角", "gote");
-    put(7, 1, "角", "sente");
-    put(7, 7, "飛", "sente");
+    startState = snapshot();
+    mode = "play";
+    selected = null;
+    judge();
+    render();
+  });
+
+  document.getElementById("btn-retry").addEventListener("click", () => {
+    restore(startState);
+    selected = null;
+    judge();
+    render();
+  });
+
+  document.getElementById("btn-edit").addEventListener("click", () => {
+    restore(startState);
+    mode = "edit";
+    result = null;
+    selected = null;
     render();
   });
 
@@ -373,7 +564,10 @@
 
   function loadSaves() {
     try {
-      return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+      const saves = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+      // 以前の形式 (red: boolean[]) を変換
+      for (const s of saves) if (!s.cells) s.cells = s.red.map(r => (r ? "pink" : ""));
+      return saves;
     } catch (e) {
       return [];
     }
@@ -400,14 +594,7 @@
     const name = prompt("保存名", formatDate(now));
     if (name === null) return;
     const saves = loadSaves();
-    saves.unshift({
-      id: now,
-      name: name.trim() || formatDate(now),
-      savedAt: now,
-      board: board.map(p => p && { ...p }),
-      red: [...red],
-      hands: { sente: { ...hands.sente }, gote: { ...hands.gote } },
-    });
+    saves.unshift({ id: now, name: name.trim() || formatDate(now), savedAt: now, ...snapshot() });
     if (writeSaves(saves)) alert("保存しました");
   });
 
@@ -447,7 +634,7 @@
     b.innerHTML = "";
     save.board.forEach((p, i) => {
       const cell = document.createElement("div");
-      cell.className = "cell" + (save.red[i] ? " red" : "");
+      cell.className = "cell" + (save.cells[i] === "pink" ? " red" : "");
       if (p) {
         if (p.side === "gote") cell.classList.add("gote");
         cell.appendChild(pieceEl(p.kind, p.promoted));
@@ -459,17 +646,7 @@
       el.innerHTML = "";
       for (const kind of KINDS) {
         const n = save.hands[side][kind];
-        if (!n) continue;
-        const slot = document.createElement("div");
-        slot.className = "slot";
-        slot.appendChild(pieceEl(kind, false));
-        if (n > 1) {
-          const c = document.createElement("div");
-          c.className = "count";
-          c.textContent = n;
-          slot.appendChild(c);
-        }
-        el.appendChild(slot);
+        if (n) el.appendChild(handSlot(kind, n));
       }
     }
     listView.hidden = true;
@@ -481,11 +658,8 @@
   document.getElementById("btn-back").addEventListener("click", showList);
 
   document.getElementById("btn-load").addEventListener("click", () => {
-    clearAll();
-    current.board.forEach((p, i) => { board[i] = p && { ...p }; });
-    current.red.forEach((r, i) => { red[i] = r; });
-    hands.sente = { ...current.hands.sente };
-    hands.gote = { ...current.hands.gote };
+    restore(current);
+    selected = null;
     detailView.hidden = true;
     render();
   });
