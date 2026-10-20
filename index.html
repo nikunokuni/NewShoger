@@ -237,6 +237,7 @@
   <div class="hint play-only">
     【プレイ】駒(または持ち駒)をタップ → 枠の付いたピンクのマスをタップで移動<br>
     敵陣に入る・敵陣から出るときは成ることができます<br>
+    ピンクのマスにある相手の駒は取れます(取った駒は持ち駒になります)<br>
     全部のピンクのマスを青にしたらクリア
   </div>
 
@@ -305,7 +306,9 @@
     const inside = (cx, cy) => cx >= 0 && cx < 9 && cy >= 0 && cy < 9;
     const consider = (cx, cy) => {
       const j = cy * 9 + cx;
-      if (!board[j] && cells[j] === "pink") result.push(j);
+      const q = board[j];
+      // 空きマスか相手の駒(取れる)があるピンクのマスに動ける
+      if ((!q || q.side !== p.side) && cells[j] === "pink") result.push(j);
     };
     const m = movesFor(p);
     for (const [dx, dy] of m.step || []) {
@@ -314,8 +317,9 @@
     }
     for (const [dx, dy] of m.slide || []) {
       let cx = x + dx * dir, cy = y + dy * dir;
-      while (inside(cx, cy) && !board[cy * 9 + cx]) {
+      while (inside(cx, cy)) {
         consider(cx, cy);
+        if (board[cy * 9 + cx]) break;
         cx += dx * dir;
         cy += dy * dir;
       }
@@ -459,6 +463,7 @@
       }
       const from = selected.index;
       const p = board[from];
+      if (board[i]) addToHand(p.side, board[i].kind, 1);
       board[i] = p;
       board[from] = null;
       if (mustPromote(p, i)) {
