@@ -113,7 +113,7 @@
     text-align: center;
   }
   .hand.gote .count { right: auto; left: -2px; bottom: auto; top: -2px; }
-  .tools { display: flex; gap: 8px; }
+  .tools { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
   .tools button {
     font: 14px sans-serif;
     padding: 8px 14px;
@@ -184,12 +184,14 @@
   <div class="status" id="status"></div>
   <div class="tools edit-only">
     <button id="btn-start">スタート</button>
+    <button id="btn-pink">ピンク</button>
     <button id="btn-erase">消す</button>
     <button id="btn-clear">全消去</button>
   </div>
   <div class="tools edit-only">
     <button id="btn-save">保存</button>
     <button id="btn-list">保存一覧</button>
+    <button id="btn-public">みんなの問題</button>
     <button id="btn-update">最新版に更新</button>
   </div>
   <div class="tools play-only">
@@ -198,7 +200,7 @@
   </div>
   <div class="overlay" id="list-view" hidden>
     <div class="panel">
-      <h2>保存一覧</h2>
+      <h2 id="list-title"></h2>
       <ul class="save-list" id="save-list"></ul>
       <div class="tools"><button data-close>閉じる</button></div>
     </div>
@@ -210,7 +212,9 @@
       <div class="board" id="detail-board"></div>
       <div class="hand sente" id="detail-hand-sente"></div>
       <div class="tools">
-        <button id="btn-load">この盤面を読み込む</button>
+        <button id="btn-play">遊ぶ</button>
+        <button id="btn-load">編集する</button>
+        <button id="btn-share">共有URLをコピー</button>
         <button id="btn-delete">削除</button>
         <button id="btn-back">戻る</button>
       </div>
@@ -227,7 +231,8 @@
   </div>
   <div class="hint edit-only">
     【編集】駒をタップ → マス(または持ち駒欄)をタップで配置 / 駒を右クリックで成る<br>
-    空きマスを右クリックでピンクにする / 「消す」→ 駒をタップで消去 / 「スタート」で開始
+    空きマスを右クリックでピンクにする / 「ピンク」→ マスをタップでピンク切り替え(駒があってもOK)<br>
+    「消す」→ 駒をタップで消去 / 「スタート」で開始
   </div>
   <div class="hint play-only">
     【プレイ】駒(または持ち駒)をタップ → 枠の付いたピンクのマスをタップで移動<br>
@@ -434,9 +439,10 @@
       if (!selected || selected.from === "board") return;
       if (selected.from === "erase") {
         board[i] = null;
+      } else if (selected.from === "pink") {
+        cells[i] = cells[i] === "pink" ? "" : "pink";
       } else {
         board[i] = { kind: selected.kind, side: selected.side, promoted: false };
-        cells[i] = "";
         if (selected.from === "hand") addToHand(selected.side, selected.kind, -1);
       }
       render();
@@ -562,7 +568,8 @@
     renderHand("sente");
     renderBoard();
     renderStatus();
-    document.getElementById("btn-erase").classList.toggle("selected", !!selected && selected.from === "erase");
+    for (const tool of ["erase", "pink"])
+      document.getElementById("btn-" + tool).classList.toggle("selected", !!selected && selected.from === tool);
   }
 
   for (const side of ["sente", "gote"]) {
@@ -581,7 +588,7 @@
     selected = null;
   }
 
-  document.getElementById("btn-start").addEventListener("click", () => {
+  function startPlay() {
     const hasPiece = board.some(Boolean) || Object.keys(hands.sente).length || Object.keys(hands.gote).length;
     if (!hasPiece || !cells.includes("pink")) {
       alert("駒とピンクのマスを1つ以上置いてください");
@@ -592,7 +599,9 @@
     selected = null;
     judge();
     render();
-  });
+  }
+
+  document.getElementById("btn-start").addEventListener("click", startPlay);
 
   document.getElementById("btn-retry").addEventListener("click", () => {
     restore(startState);
@@ -610,6 +619,7 @@
   });
 
   document.getElementById("btn-erase").addEventListener("click", () => toggleSelect({ from: "erase" }));
+  document.getElementById("btn-pink").addEventListener("click", () => toggleSelect({ from: "pink" }));
 
   document.getElementById("btn-clear").addEventListener("click", () => {
     clearAll();
@@ -655,38 +665,99 @@
     if (writeSaves(saves)) alert("保存しました");
   });
 
+  // ---- 共有 ----
+  // 問題の形式 (puzzles.json と共有URLで共通):
+  // { name, pieces: [[マス番号, 駒, "sente"|"gote", 成り(0|1)], ...], pink: [マス番号, ...], hands: { sente: {駒: 枚数}, gote: {...} } }
+  // マス番号 = 段(0〜8, 上から) * 9 + 筋(0〜8, 左から)
+  function toPuzzle(state, name) {
+    const pieces = [];
+    state.board.forEach((p, i) => { if (p) pieces.push([i, p.kind, p.side, p.promoted ? 1 : 0]); });
+    const pink = [];
+    state.cells.forEach((c, i) => { if (c === "pink") pink.push(i); });
+    return { name, pieces, pink, hands: state.hands };
+  }
+
+  function fromPuzzle(puzzle) {
+    const b = Array(81).fill(null);
+    for (const [i, kind, side, promoted] of puzzle.pieces) b[i] = { kind, side, promoted: !!promoted };
+    const c = Array(81).fill("");
+    for (const i of puzzle.pink) c[i] = "pink";
+    const h = puzzle.hands || {};
+    return { name: puzzle.name, board: b, cells: c, hands: { sente: { ...h.sente }, gote: { ...h.gote } } };
+  }
+
+  function encodePuzzle(puzzle) {
+    const bytes = new TextEncoder().encode(JSON.stringify(puzzle));
+    let bin = "";
+    for (const x of bytes) bin += String.fromCharCode(x);
+    return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+
+  function decodePuzzle(code) {
+    const bin = atob(code.replace(/-/g, "+").replace(/_/g, "/"));
+    return JSON.parse(new TextDecoder().decode(Uint8Array.from(bin, ch => ch.charCodeAt(0))));
+  }
+
+  async function copyText(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+      alert("共有URLをコピーしました");
+    } catch (e) {
+      prompt("このURLをコピーしてください", text);
+    }
+  }
+
+  // ---- 一覧と詳細 ----
   const listView = document.getElementById("list-view");
   const detailView = document.getElementById("detail-view");
   let current = null;
+  let currentList = "local"; // "local" | "public"
 
-  function showList() {
+  async function loadPublic() {
+    try {
+      const res = await fetch("puzzles.json", { cache: "no-cache" });
+      return (await res.json()).map(fromPuzzle);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async function showList(kind) {
+    currentList = kind;
+    const isLocal = kind === "local";
+    document.getElementById("list-title").textContent = isLocal ? "保存一覧" : "みんなの問題";
     const ul = document.getElementById("save-list");
     ul.innerHTML = "";
-    const saves = loadSaves();
-    if (!saves.length) {
-      const li = document.createElement("div");
-      li.className = "empty";
-      li.textContent = "保存された盤面はありません";
-      ul.appendChild(li);
-    }
-    for (const save of saves) {
-      const li = document.createElement("li");
-      const name = document.createElement("span");
-      name.textContent = save.name;
-      const date = document.createElement("span");
-      date.className = "date";
-      date.textContent = formatDate(save.savedAt);
-      li.append(name, date);
-      li.addEventListener("click", () => showDetail(save));
-      ul.appendChild(li);
-    }
     detailView.hidden = true;
     listView.hidden = false;
+    const items = isLocal ? loadSaves() : await loadPublic();
+    if (!items || !items.length) {
+      const li = document.createElement("div");
+      li.className = "empty";
+      li.textContent = !items ? "問題を読み込めませんでした" : isLocal ? "保存された盤面はありません" : "問題はまだありません";
+      ul.appendChild(li);
+      return;
+    }
+    for (const item of items) {
+      const li = document.createElement("li");
+      const name = document.createElement("span");
+      name.textContent = item.name;
+      li.appendChild(name);
+      if (isLocal) {
+        const date = document.createElement("span");
+        date.className = "date";
+        date.textContent = formatDate(item.savedAt);
+        li.appendChild(date);
+      }
+      li.addEventListener("click", () => showDetail(item));
+      ul.appendChild(li);
+    }
   }
 
   function showDetail(save) {
     current = save;
     document.getElementById("detail-title").textContent = save.name;
+    document.getElementById("btn-delete").hidden = currentList !== "local";
     const b = document.getElementById("detail-board");
     b.innerHTML = "";
     save.board.forEach((p, i) => {
@@ -710,22 +781,52 @@
     detailView.hidden = false;
   }
 
-  document.getElementById("btn-list").addEventListener("click", showList);
+  function loadIntoEditor(state) {
+    restore(state);
+    mode = "edit";
+    result = null;
+    selected = null;
+    listView.hidden = true;
+    detailView.hidden = true;
+  }
+
+  document.getElementById("btn-list").addEventListener("click", () => showList("local"));
+  document.getElementById("btn-public").addEventListener("click", () => showList("public"));
   document.querySelector("#list-view [data-close]").addEventListener("click", () => { listView.hidden = true; });
-  document.getElementById("btn-back").addEventListener("click", showList);
+  document.getElementById("btn-back").addEventListener("click", () => showList(currentList));
 
   document.getElementById("btn-load").addEventListener("click", () => {
-    restore(current);
-    selected = null;
-    detailView.hidden = true;
+    loadIntoEditor(current);
     render();
+  });
+
+  document.getElementById("btn-play").addEventListener("click", () => {
+    loadIntoEditor(current);
+    startPlay();
+  });
+
+  document.getElementById("btn-share").addEventListener("click", () => {
+    const url = location.origin + location.pathname + "#p=" + encodePuzzle(toPuzzle(current, current.name));
+    copyText(url);
   });
 
   document.getElementById("btn-delete").addEventListener("click", () => {
     if (!confirm(`「${current.name}」を削除しますか？`)) return;
     writeSaves(loadSaves().filter(s => s.id !== current.id));
-    showList();
+    showList("local");
   });
+
+  // 共有URL (#p=...) で開かれたら、その問題を詳細表示する
+  if (location.hash.startsWith("#p=")) {
+    try {
+      const shared = fromPuzzle(decodePuzzle(location.hash.slice(3)));
+      currentList = "shared";
+      showDetail(shared);
+    } catch (e) {
+      alert("共有された問題を読み込めませんでした");
+    }
+    history.replaceState(null, "", location.pathname + location.search);
+  }
 
   // ---- キャッシュ更新 ----
   // 保存データ(localStorage)は消さずに、キャッシュを捨てて最新版を読み込み直す
