@@ -18,7 +18,8 @@
     --w: min(92vw, 48vh, 480px);
   }
   * { box-sizing: border-box; }
-  html, body { margin: 0; min-height: 100%; }
+  html { height: 100%; }
+  body { margin: 0; min-height: 100%; }
   body {
     background: var(--bg);
     font-family: "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif;
@@ -172,31 +173,57 @@
   .status { font: bold 16px sans-serif; min-height: 22px; color: #5a3d17; }
   .status.clear { color: #1f6fd1; }
   .status.over { color: #c0201a; }
+  .home .game, body:not(.home) .home-only { display: none; }
+  .home-screen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    width: min(80vw, 320px);
+  }
+  .home-screen h1 { margin: 0 0 16px; font-size: 26px; color: #5a3d17; text-align: center; }
+  .home-screen button {
+    width: 100%;
+    font: bold 18px sans-serif;
+    padding: 16px;
+    border: 1px solid var(--piece-edge);
+    border-radius: 10px;
+    background: var(--piece);
+    color: #222;
+    cursor: pointer;
+  }
   .hint { font-size: 12px; color: #6b5a3c; text-align: center; font-family: sans-serif; }
 </style>
 </head>
-<body class="edit">
-  <div class="palette gote" id="palette-gote"></div>
-  <div class="hand gote" id="hand-gote"></div>
-  <div class="board" id="board"></div>
-  <div class="hand sente" id="hand-sente"></div>
-  <div class="palette sente" id="palette-sente"></div>
-  <div class="status" id="status"></div>
-  <div class="tools edit-only">
+<body class="home">
+  <div class="home-screen home-only">
+    <h1>全部のピンクのマスに<br>移動しましょうゲーム</h1>
+    <button id="btn-home-public">みんなの問題</button>
+    <button id="btn-home-create">問題を作る</button>
+    <button id="btn-home-settings">せってい</button>
+  </div>
+  <div class="game palette gote" id="palette-gote"></div>
+  <div class="game hand gote" id="hand-gote"></div>
+  <div class="game board" id="board"></div>
+  <div class="game hand sente" id="hand-sente"></div>
+  <div class="game palette sente" id="palette-sente"></div>
+  <div class="game status" id="status"></div>
+  <div class="game tools edit-only">
     <button id="btn-start">スタート</button>
     <button id="btn-pink">ピンク</button>
     <button id="btn-erase">消す</button>
     <button id="btn-clear">全消去</button>
   </div>
-  <div class="tools edit-only">
+  <div class="game tools edit-only">
     <button id="btn-save">保存</button>
     <button id="btn-list">保存一覧</button>
-    <button id="btn-public">みんなの問題</button>
     <button id="btn-update">最新版に更新</button>
+    <button id="btn-home">ホーム</button>
   </div>
-  <div class="tools play-only">
+  <div class="game tools play-only">
     <button id="btn-retry">やり直し</button>
     <button id="btn-edit">編集に戻る</button>
+    <button id="btn-home-play">ホーム</button>
   </div>
   <div class="overlay" id="list-view" hidden>
     <div class="panel">
@@ -229,12 +256,12 @@
       </div>
     </div>
   </div>
-  <div class="hint edit-only">
+  <div class="game hint edit-only">
     【編集】駒をタップ → マス(または持ち駒欄)をタップで配置 / 駒を右クリックで成る<br>
     空きマスを右クリックでピンクにする / 「ピンク」→ マスをタップでピンク切り替え(駒があってもOK)<br>
     「消す」→ 駒をタップで消去 / 「スタート」で開始
   </div>
-  <div class="hint play-only">
+  <div class="game hint play-only">
     【プレイ】駒(または持ち駒)をタップ → 枠の付いたピンクのマスをタップで移動<br>
     敵陣に入る・敵陣から出るときは成ることができます<br>
     ピンクのマスにある相手の駒は取れます(取った駒は持ち駒になります)<br>
@@ -270,7 +297,7 @@
   let board = Array(81).fill(null);
   let cells = Array(81).fill("");
   let hands = { sente: {}, gote: {} };
-  let mode = "edit"; // "edit" | "play"
+  let mode = "home"; // "home" | "edit" | "play"
   let result = null; // null | "clear" | "over"
   let startState = null;
   // edit: { from: "palette" | "hand", kind, side } or { from: "erase" }
@@ -796,7 +823,23 @@
   }
 
   document.getElementById("btn-list").addEventListener("click", () => showList("local"));
-  document.getElementById("btn-public").addEventListener("click", () => showList("public"));
+  document.getElementById("btn-home-public").addEventListener("click", () => showList("public"));
+  document.getElementById("btn-home-create").addEventListener("click", () => {
+    mode = "edit";
+    render();
+  });
+  // せってい: 未実装 (ボタンのみ)
+
+  function goHome() {
+    if (mode === "play") restore(startState);
+    mode = "home";
+    result = null;
+    selected = null;
+    render();
+  }
+
+  document.getElementById("btn-home").addEventListener("click", goHome);
+  document.getElementById("btn-home-play").addEventListener("click", goHome);
   document.querySelector("#list-view [data-close]").addEventListener("click", () => { listView.hidden = true; });
   document.getElementById("btn-back").addEventListener("click", () => showList(currentList));
 
