@@ -4,5 +4,11 @@
     "pieces": [[40, "飛", "sente", 0]],
     "pink": [36, 0, 8, 44, 40],
     "hands": { "sente": {}, "gote": {} }
+  },
+  {
+    "name": "香車",
+    "pieces": [[80, "香", "sente", 0]],
+    "pink": [7, 16, 17, 25],
+    "hands": { "sente": {}, "gote": {} }
   }
 ]
