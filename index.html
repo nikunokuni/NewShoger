@@ -166,6 +166,17 @@
   .save-list .date { color: #6b5a3c; font-size: 12px; white-space: nowrap; }
   .save-list label { display: flex; align-items: center; gap: 8px; flex: 1; cursor: pointer; }
   .save-list input { width: 18px; height: 18px; margin: 0; }
+  .save-list li:has(.thumb) { align-items: center; }
+  .thumb {
+    display: grid;
+    grid-template-columns: repeat(4, 22px);
+    grid-template-rows: repeat(4, 22px);
+    flex: none;
+    background: var(--board);
+    border: 1px solid var(--line);
+  }
+  .thumb .cell { border-width: 0.5px; cursor: pointer; }
+  .thumb .piece { font-size: 13px; }
   .empty { font-family: sans-serif; color: #6b5a3c; padding: 12px; }
   .cell.blue { background: var(--blue); }
   .cell.target { box-shadow: inset 0 0 0 3px #e0457b; }
@@ -836,6 +847,7 @@
       const name = document.createElement("span");
       name.textContent = item.name;
       li.appendChild(name);
+      if (kind === "public") li.appendChild(thumbEl(item));
       if (isLocal) {
         const date = document.createElement("span");
         date.className = "date";
@@ -845,6 +857,36 @@
       li.addEventListener("click", () => showDetail(item));
       ul.appendChild(li);
     }
+  }
+
+  // 盤面の一部 (4×4マス) の見本。駒とピンクのマスが一番多く入る場所を選ぶ
+  function thumbEl(save) {
+    const N = 4;
+    const filled = i => (save.board[i] ? 1 : 0) + (save.cells[i] === "pink" ? 1 : 0);
+    let best = 0, bx = 0, by = 0;
+    for (let y = 0; y <= 9 - N; y++) {
+      for (let x = 0; x <= 9 - N; x++) {
+        let n = 0;
+        for (let dy = 0; dy < N; dy++) for (let dx = 0; dx < N; dx++) n += filled((y + dy) * 9 + x + dx);
+        if (n > best) [best, bx, by] = [n, x, y];
+      }
+    }
+    const el = document.createElement("div");
+    el.className = "thumb";
+    for (let dy = 0; dy < N; dy++) {
+      for (let dx = 0; dx < N; dx++) {
+        const i = (by + dy) * 9 + bx + dx;
+        const p = save.board[i];
+        const cell = document.createElement("div");
+        cell.className = "cell" + (save.cells[i] === "pink" ? " red" : "");
+        if (p) {
+          if (p.side === "gote") cell.classList.add("gote");
+          cell.appendChild(pieceEl(p.kind, p.promoted));
+        }
+        el.appendChild(cell);
+      }
+    }
+    return el;
   }
 
   function showDetail(save) {
