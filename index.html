@@ -701,26 +701,37 @@
     return `${d.getFullYear()}/${z(d.getMonth() + 1)}/${z(d.getDate())} ${z(d.getHours())}:${z(d.getMinutes())}`;
   }
 
+  const LEVELS = [1, 2, 3, 4, 5];
+  let editLevel = 1; // 編集中の問題のレベル
+
+  function toLevel(v) {
+    const n = Number(v);
+    return LEVELS.includes(n) ? n : 1;
+  }
+
   document.getElementById("btn-save").addEventListener("click", () => {
     const now = Date.now();
     const name = prompt("保存名", formatDate(now));
     if (name === null) return;
+    const level = prompt("レベル (1〜5)", String(editLevel));
+    if (level === null) return;
+    editLevel = toLevel(level);
     const saves = loadSaves();
-    saves.unshift({ id: now, name: name.trim() || formatDate(now), savedAt: now, ...snapshot() });
+    saves.unshift({ id: now, name: name.trim() || formatDate(now), level: editLevel, savedAt: now, ...snapshot() });
     if (writeSaves(saves)) alert("保存しました");
   });
 
   // ---- 共有 ----
   // 共有URL (#p=...) には問題1つ、または問題の配列を入れる
   // 問題の形式 (puzzles.json と共有URLで共通):
-  // { name, pieces: [[マス番号, 駒, "sente"|"gote", 成り(0|1)], ...], pink: [マス番号, ...], hands: { sente: {駒: 枚数}, gote: {...} } }
+  // { name, level: 1〜5, pieces: [[マス番号, 駒, "sente"|"gote", 成り(0|1)], ...], pink: [マス番号, ...], hands: { sente: {駒: 枚数}, gote: {...} } }
   // マス番号 = 段(0〜8, 上から) * 9 + 筋(0〜8, 左から)
   function toPuzzle(state, name) {
     const pieces = [];
     state.board.forEach((p, i) => { if (p) pieces.push([i, p.kind, p.side, p.promoted ? 1 : 0]); });
     const pink = [];
     state.cells.forEach((c, i) => { if (c === "pink") pink.push(i); });
-    return { name, pieces, pink, hands: state.hands };
+    return { name, level: toLevel(state.level), pieces, pink, hands: state.hands };
   }
 
   function fromPuzzle(puzzle) {
@@ -729,7 +740,7 @@
     const c = Array(81).fill("");
     for (const i of puzzle.pink) c[i] = "pink";
     const h = puzzle.hands || {};
-    return { name: puzzle.name, board: b, cells: c, hands: { sente: { ...h.sente }, gote: { ...h.gote } } };
+    return { name: puzzle.name, level: toLevel(puzzle.level), board: b, cells: c, hands: { sente: { ...h.sente }, gote: { ...h.gote } } };
   }
 
   function encodePuzzle(puzzle) {
@@ -759,6 +770,7 @@
   let current = null;
   let currentList = "local"; // "local" | "public" | "shared"
   let sharedItems = [];
+  let currentLevel = null; // みんなの問題で選んでいるレベル
 
   async function loadPublic() {
     try {
@@ -769,15 +781,49 @@
     }
   }
 
-  async function showList(kind) {
-    currentList = kind;
-    const isLocal = kind === "local";
-    document.getElementById("list-title").textContent = isLocal ? "保存一覧" : kind === "shared" ? "共有された問題" : "みんなの問題";
+  // みんなの問題: まずレベルを選ぶ
+  async function showLevels() {
+    currentList = "public";
+    currentLevel = null;
+    document.getElementById("list-title").textContent = "みんなの問題";
     const ul = document.getElementById("save-list");
     ul.innerHTML = "";
     detailView.hidden = true;
     listView.hidden = false;
-    const items = isLocal ? loadSaves() : kind === "shared" ? sharedItems : await loadPublic();
+    const items = await loadPublic();
+    if (!items) {
+      const li = document.createElement("div");
+      li.className = "empty";
+      li.textContent = "問題を読み込めませんでした";
+      ul.appendChild(li);
+      return;
+    }
+    for (const level of LEVELS) {
+      const li = document.createElement("li");
+      const name = document.createElement("span");
+      name.textContent = "レベル" + level;
+      const count = document.createElement("span");
+      count.className = "date";
+      count.textContent = items.filter(p => p.level === level).length + "問";
+      li.append(name, count);
+      li.addEventListener("click", () => showList("public", level));
+      ul.appendChild(li);
+    }
+  }
+
+  async function showList(kind, level = currentLevel) {
+    currentList = kind;
+    currentLevel = kind === "public" ? level : null;
+    const isLocal = kind === "local";
+    document.getElementById("list-title").textContent =
+      isLocal ? "保存一覧" : kind === "shared" ? "共有された問題" : "みんなの問題 レベル" + level;
+    const ul = document.getElementById("save-list");
+    ul.innerHTML = "";
+    detailView.hidden = true;
+    listView.hidden = false;
+    const items = isLocal ? loadSaves()
+      : kind === "shared" ? sharedItems
+      : (await loadPublic())?.filter(p => p.level === level);
     if (!items || !items.length) {
       const li = document.createElement("div");
       li.className = "empty";
@@ -803,7 +849,7 @@
 
   function showDetail(save) {
     current = save;
-    document.getElementById("detail-title").textContent = save.name;
+    document.getElementById("detail-title").textContent = `${save.name} (レベル${toLevel(save.level)})`;
     document.getElementById("btn-delete").hidden = currentList !== "local";
     const b = document.getElementById("detail-board");
     b.innerHTML = "";
@@ -830,6 +876,7 @@
 
   function loadIntoEditor(state) {
     restore(state);
+    editLevel = toLevel(state.level);
     mode = "edit";
     result = null;
     selected = null;
@@ -838,7 +885,7 @@
   }
 
   document.getElementById("btn-list").addEventListener("click", () => showList("local"));
-  document.getElementById("btn-home-public").addEventListener("click", () => showList("public"));
+  document.getElementById("btn-home-public").addEventListener("click", showLevels);
   document.getElementById("btn-home-create").addEventListener("click", () => {
     mode = "edit";
     render();
@@ -855,7 +902,11 @@
 
   document.getElementById("btn-home").addEventListener("click", goHome);
   document.getElementById("btn-home-play").addEventListener("click", goHome);
-  document.querySelector("#list-view [data-close]").addEventListener("click", () => { listView.hidden = true; });
+  // レベル別の一覧で閉じるとレベル選択に戻る
+  document.querySelector("#list-view [data-close]").addEventListener("click", () => {
+    if (currentList === "public" && currentLevel) showLevels();
+    else listView.hidden = true;
+  });
   document.getElementById("btn-back").addEventListener("click", () => showList(currentList));
 
   document.getElementById("btn-load").addEventListener("click", () => {
