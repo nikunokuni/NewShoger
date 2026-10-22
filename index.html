@@ -803,13 +803,41 @@
     return playList[playList.indexOf(current) + 1] || null;
   }
 
-  async function loadPublic() {
-    try {
-      const res = await fetch("puzzles.json", { cache: "no-cache" });
-      return (await res.json()).map(fromPuzzle);
-    } catch (e) {
-      return null;
+  // 問題名の最初の字で駒の順に並べる (同じ駒の中は puzzles.json の順)
+  const PIECE_ORDER = ["歩", "香", "桂", "銀", "金", "角", "飛", "王", "玉"];
+  const pieceRank = p => {
+    const r = PIECE_ORDER.indexOf(p.name[0]);
+    return r < 0 ? PIECE_ORDER.length : r;
+  };
+
+  // 一度読み込んだら覚えておく (失敗したときは次回もう一度読み込む)
+  let publicPuzzles = null;
+
+  function loadPublic() {
+    publicPuzzles ||= fetch("puzzles.json", { cache: "no-cache" })
+      .then(res => res.json())
+      .then(list => list.map(fromPuzzle).sort((a, b) => pieceRank(a) - pieceRank(b)))
+      .catch(() => {
+        publicPuzzles = null;
+        return null;
+      });
+    return publicPuzzles;
+  }
+
+  // 一覧の中身を作り直す前に呼ぶ。読み込み中に別の一覧が開かれたら古い方は捨てる
+  let listRequest = 0;
+
+  function resetList(loading) {
+    const ul = document.getElementById("save-list");
+    ul.innerHTML = "";
+    ul.classList.remove("cards");
+    if (loading) {
+      const li = document.createElement("div");
+      li.className = "empty";
+      li.textContent = "読み込み中…";
+      ul.appendChild(li);
     }
+    return ul;
   }
 
   // みんなの問題: まずレベルを選ぶ
@@ -817,12 +845,13 @@
     currentList = "public";
     currentLevel = null;
     document.getElementById("list-title").textContent = "みんなの問題";
-    const ul = document.getElementById("save-list");
-    ul.innerHTML = "";
-    ul.classList.remove("cards");
+    const request = ++listRequest;
+    resetList(true);
     detailView.hidden = true;
     listView.hidden = false;
     const items = await loadPublic();
+    if (request !== listRequest) return;
+    const ul = resetList(false);
     if (!items) {
       const li = document.createElement("div");
       li.className = "empty";
@@ -849,14 +878,15 @@
     const isLocal = kind === "local";
     document.getElementById("list-title").textContent =
       isLocal ? "保存一覧" : kind === "shared" ? "共有された問題" : "みんなの問題 レベル" + level;
-    const ul = document.getElementById("save-list");
-    ul.innerHTML = "";
-    ul.classList.remove("cards");
+    const request = ++listRequest;
+    resetList(kind === "public");
     detailView.hidden = true;
     listView.hidden = false;
     const items = isLocal ? loadSaves()
       : kind === "shared" ? sharedItems
       : (await loadPublic())?.filter(p => p.level === level);
+    if (request !== listRequest) return;
+    const ul = resetList(false);
     listItems = items || [];
     if (!items || !items.length) {
       const li = document.createElement("div");
