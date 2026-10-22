@@ -164,6 +164,8 @@
   }
   .save-list li:hover { background: var(--hand); }
   .save-list .date { color: #6b5a3c; font-size: 12px; white-space: nowrap; }
+  .save-list label { display: flex; align-items: center; gap: 8px; flex: 1; cursor: pointer; }
+  .save-list input { width: 18px; height: 18px; margin: 0; }
   .empty { font-family: sans-serif; color: #6b5a3c; padding: 12px; }
   .cell.blue { background: var(--blue); }
   .cell.target { box-shadow: inset 0 0 0 3px #e0457b; }
@@ -217,6 +219,7 @@
   <div class="game tools edit-only">
     <button id="btn-save">保存</button>
     <button id="btn-list">保存一覧</button>
+    <button id="btn-share-multi">問題を共有</button>
     <button id="btn-update">最新版に更新</button>
     <button id="btn-home">ホーム</button>
   </div>
@@ -230,6 +233,16 @@
       <h2 id="list-title"></h2>
       <ul class="save-list" id="save-list"></ul>
       <div class="tools"><button data-close>閉じる</button></div>
+    </div>
+  </div>
+  <div class="overlay" id="share-view" hidden>
+    <div class="panel">
+      <h2>共有する問題を選ぶ</h2>
+      <ul class="save-list" id="share-list"></ul>
+      <div class="tools">
+        <button id="btn-share-copy">URLをコピー</button>
+        <button data-close>閉じる</button>
+      </div>
     </div>
   </div>
   <div class="overlay" id="detail-view" hidden>
@@ -698,6 +711,7 @@
   });
 
   // ---- 共有 ----
+  // 共有URL (#p=...) には問題1つ、または問題の配列を入れる
   // 問題の形式 (puzzles.json と共有URLで共通):
   // { name, pieces: [[マス番号, 駒, "sente"|"gote", 成り(0|1)], ...], pink: [マス番号, ...], hands: { sente: {駒: 枚数}, gote: {...} } }
   // マス番号 = 段(0〜8, 上から) * 9 + 筋(0〜8, 左から)
@@ -743,7 +757,8 @@
   const listView = document.getElementById("list-view");
   const detailView = document.getElementById("detail-view");
   let current = null;
-  let currentList = "local"; // "local" | "public"
+  let currentList = "local"; // "local" | "public" | "shared"
+  let sharedItems = [];
 
   async function loadPublic() {
     try {
@@ -757,12 +772,12 @@
   async function showList(kind) {
     currentList = kind;
     const isLocal = kind === "local";
-    document.getElementById("list-title").textContent = isLocal ? "保存一覧" : "みんなの問題";
+    document.getElementById("list-title").textContent = isLocal ? "保存一覧" : kind === "shared" ? "共有された問題" : "みんなの問題";
     const ul = document.getElementById("save-list");
     ul.innerHTML = "";
     detailView.hidden = true;
     listView.hidden = false;
-    const items = isLocal ? loadSaves() : await loadPublic();
+    const items = isLocal ? loadSaves() : kind === "shared" ? sharedItems : await loadPublic();
     if (!items || !items.length) {
       const li = document.createElement("div");
       li.className = "empty";
@@ -858,18 +873,65 @@
     copyText(url);
   });
 
+  // 保存した問題から選んで、まとめて共有URLにする
+  const shareView = document.getElementById("share-view");
+
+  document.getElementById("btn-share-multi").addEventListener("click", () => {
+    const ul = document.getElementById("share-list");
+    ul.innerHTML = "";
+    const saves = loadSaves();
+    if (!saves.length) {
+      const li = document.createElement("div");
+      li.className = "empty";
+      li.textContent = "保存された盤面はありません";
+      ul.appendChild(li);
+    }
+    saves.forEach((item, i) => {
+      const li = document.createElement("li");
+      const label = document.createElement("label");
+      const check = document.createElement("input");
+      check.type = "checkbox";
+      check.value = i;
+      const name = document.createElement("span");
+      name.textContent = item.name;
+      label.append(check, name);
+      const date = document.createElement("span");
+      date.className = "date";
+      date.textContent = formatDate(item.savedAt);
+      li.append(label, date);
+      ul.appendChild(li);
+    });
+    shareView.saves = saves;
+    shareView.hidden = false;
+  });
+
+  document.getElementById("btn-share-copy").addEventListener("click", () => {
+    const picked = [...document.querySelectorAll("#share-list input:checked")]
+      .map(c => toPuzzle(shareView.saves[c.value], shareView.saves[c.value].name));
+    if (!picked.length) {
+      alert("問題を選んでください");
+      return;
+    }
+    const data = picked.length === 1 ? picked[0] : picked;
+    copyText(location.origin + location.pathname + "#p=" + encodePuzzle(data));
+  });
+
+  document.querySelector("#share-view [data-close]").addEventListener("click", () => { shareView.hidden = true; });
+
   document.getElementById("btn-delete").addEventListener("click", () => {
     if (!confirm(`「${current.name}」を削除しますか？`)) return;
     writeSaves(loadSaves().filter(s => s.id !== current.id));
     showList("local");
   });
 
-  // 共有URL (#p=...) で開かれたら、その問題を詳細表示する
+  // 共有URL (#p=...) で開かれたら、問題1つなら詳細、複数なら一覧を表示する
   if (location.hash.startsWith("#p=")) {
     try {
-      const shared = fromPuzzle(decodePuzzle(location.hash.slice(3)));
+      const data = decodePuzzle(location.hash.slice(3));
+      sharedItems = (Array.isArray(data) ? data : [data]).map(fromPuzzle);
       currentList = "shared";
-      showDetail(shared);
+      if (sharedItems.length === 1) showDetail(sharedItems[0]);
+      else showList("shared");
     } catch (e) {
       alert("共有された問題を読み込めませんでした");
     }

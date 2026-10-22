@@ -9,8 +9,9 @@
 ユーザーから共有URL (`...index.html#p=<コード>`) を渡されたら:
 
 1. `#p=` の後ろを base64url デコードすると問題の JSON になる
+   (問題1つならオブジェクト、複数なら配列)
    (`node -e 'console.log(Buffer.from(process.argv[1], "base64url").toString())' <コード>`)
-2. その JSON を `puzzles.json` の配列の末尾に追加する。`name` は必要なら変える
+2. その問題を `puzzles.json` の配列の末尾に追加する (配列なら全部)。`name` は必要なら変える
 3. コミットしてプッシュする
 
 問題の形式:
