@@ -243,6 +243,7 @@
     <button id="btn-home">ホーム</button>
   </div>
   <div class="game tools play-only">
+    <button id="btn-next" hidden>次の問題へ</button>
     <button id="btn-retry">やり直し</button>
     <button id="btn-edit">編集に戻る</button>
     <button id="btn-home-play">ホーム</button>
@@ -622,6 +623,7 @@
     } else {
       el.textContent = `残りのピンク: ${cells.filter(c => c === "pink").length}`;
     }
+    document.getElementById("btn-next").hidden = !(mode === "play" && result === "clear" && nextPuzzle());
   }
 
   function render() {
@@ -665,7 +667,10 @@
     render();
   }
 
-  document.getElementById("btn-start").addEventListener("click", startPlay);
+  document.getElementById("btn-start").addEventListener("click", () => {
+    playList = null;
+    startPlay();
+  });
 
   document.getElementById("btn-retry").addEventListener("click", () => {
     restore(startState);
@@ -790,6 +795,13 @@
   let currentList = "local"; // "local" | "public" | "shared"
   let sharedItems = [];
   let currentLevel = null; // みんなの問題で選んでいるレベル
+  let listItems = [];      // 最後に表示した一覧の問題
+  let playList = null;     // 遊んでいる問題が入っている一覧 (次の問題へ用)
+
+  function nextPuzzle() {
+    if (!playList) return null;
+    return playList[playList.indexOf(current) + 1] || null;
+  }
 
   async function loadPublic() {
     try {
@@ -845,6 +857,7 @@
     const items = isLocal ? loadSaves()
       : kind === "shared" ? sharedItems
       : (await loadPublic())?.filter(p => p.level === level);
+    listItems = items || [];
     if (!items || !items.length) {
       const li = document.createElement("div");
       li.className = "empty";
@@ -968,6 +981,13 @@
   });
 
   document.getElementById("btn-play").addEventListener("click", () => {
+    playList = listItems.includes(current) ? listItems : null;
+    loadIntoEditor(current);
+    startPlay();
+  });
+
+  document.getElementById("btn-next").addEventListener("click", () => {
+    current = nextPuzzle();
     loadIntoEditor(current);
     startPlay();
   });
@@ -1034,6 +1054,7 @@
       const data = decodePuzzle(location.hash.slice(3));
       sharedItems = (Array.isArray(data) ? data : [data]).map(fromPuzzle);
       currentList = "shared";
+      listItems = sharedItems;
       if (sharedItems.length === 1) showDetail(sharedItems[0]);
       else showList("shared");
     } catch (e) {
