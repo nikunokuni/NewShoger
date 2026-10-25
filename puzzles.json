@@ -10,7 +10,6 @@
   {"name":"角","level":3,"pieces":[[39,"桂","sente",0],[54,"角","sente",0]],"pink":[2,22],"hands":{"sente":{},"gote":{}}},
   {"name":"角","level":3,"pieces":[[41,"角","sente",0],[64,"角","sente",0]],"pink":[13,37,48,57,62,78],"hands":{"sente":{},"gote":{}}},
   {"name":"角","level":1,"pieces":[[41,"角","sente",0]],"pink":[47,61,63,77],"hands":{"sente":{},"gote":{}}},
-  {"name":"角","level":1,"pieces":[[64,"角","sente",0]],"pink":[48,52,68],"hands":{"sente":{},"gote":{}}},
   {"name":"金","level":2,"pieces":[[23,"金","sente",0]],"pink":[13,14,15,22,24,32],"hands":{"sente":{},"gote":{}}},
   {"name":"金","level":2,"pieces":[[77,"金","sente",0]],"pink":[59,67,68,69],"hands":{"sente":{},"gote":{}}},
   {"name":"金","level":1,"pieces":[[23,"金","sente",0]],"pink":[31,32,39,40,48],"hands":{"sente":{},"gote":{}}},
