@@ -1050,12 +1050,15 @@
     }
   }
 
-  // みんなの問題 レベル5: 駒ごとのボタン (中身はまだない)
+  // みんなの問題 レベル5: 駒ごとのボタン。押すとその駒で将棋走 (shorisou/) が始まる
   function showPieceButtons(ul) {
     ul.classList.add("pieces");
     for (const kind of ["歩", "香", "桂", "銀", "金", "角", "飛", "王"]) {
       const li = document.createElement("li");
       li.appendChild(pieceEl(kind, false));
+      li.addEventListener("click", () => {
+        location.href = "shorisou/index.html?piece=" + encodeURIComponent(kind);
+      });
       ul.appendChild(li);
     }
   }
