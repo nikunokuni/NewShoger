@@ -176,6 +176,14 @@
     border-radius: 8px;
   }
   .save-list.cards li span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* みんなの問題 レベル5: 駒のボタン */
+  .save-list.pieces { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .save-list.pieces li {
+    justify-content: center;
+    border: 1px solid var(--hand);
+    border-radius: 8px;
+  }
+  .save-list.pieces .piece { width: 48px; font-size: 26px; }
   .thumb {
     display: grid;
     grid-template-columns: repeat(4, 26px);
@@ -946,7 +954,7 @@
   function resetList(loading) {
     const ul = document.getElementById("save-list");
     ul.innerHTML = "";
-    ul.classList.remove("cards");
+    ul.classList.remove("cards", "pieces");
     if (loading) {
       const li = document.createElement("div");
       li.className = "empty";
@@ -1008,6 +1016,10 @@
     const ul = resetList(false);
     listItems = items || [];
     const clears = loadClears();
+    if (kind === "public" && level === 5) {
+      showPieceButtons(ul);
+      return;
+    }
     if (!items || !items.length) {
       const li = document.createElement("div");
       li.className = "empty";
@@ -1035,6 +1047,16 @@
     if (!isLocal) {
       const n = items.filter(item => clears[puzzleKey(item)]).length;
       document.getElementById("list-title").textContent += `（クリア ${n}/${items.length}）`;
+    }
+  }
+
+  // みんなの問題 レベル5: 駒ごとのボタン (中身はまだない)
+  function showPieceButtons(ul) {
+    ul.classList.add("pieces");
+    for (const kind of ["歩", "香", "桂", "銀", "金", "角", "飛", "王"]) {
+      const li = document.createElement("li");
+      li.appendChild(pieceEl(kind, false));
+      ul.appendChild(li);
     }
   }
 
