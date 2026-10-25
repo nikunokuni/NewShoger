@@ -1,5 +1,4 @@
 [
-  {"name":"王","level":1,"pieces":[[76,"王","sente",0]],"pink":[31,32,40,42,48,52,61,68,69],"hands":{"sente":{},"gote":{}}},
   {"name":"飛","level":3,"pieces":[[4,"飛","sente",0],[64,"角","sente",0]],"pink":[24,40,60],"hands":{"sente":{},"gote":{}}},
   {"name":"飛","level":3,"pieces":[[15,"飛","sente",0],[29,"飛","sente",0]],"pink":[33,41],"hands":{"sente":{},"gote":{}}},
   {"name":"飛","level":1,"pieces":[[31,"歩","gote",0],[67,"飛","sente",0]],"pink":[22,25,40,43,49],"hands":{"sente":{},"gote":{}}},
