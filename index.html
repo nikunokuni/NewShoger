@@ -133,6 +133,7 @@
     align-items: center;
     justify-content: center;
     padding: 16px;
+    z-index: 5;
   }
   .overlay[hidden] { display: none; }
   .panel {
@@ -193,6 +194,41 @@
     cursor: pointer;
   }
   .hint { font-size: 12px; color: #6b5a3c; text-align: center; font-family: sans-serif; }
+  .tools button:disabled { opacity: 0.4; cursor: default; }
+
+  /* ---- 演出 ---- */
+  .cell.target { animation: pulse 1s ease-in-out infinite; }
+  @keyframes pulse { 50% { background: #f9a3c2; box-shadow: inset 0 0 0 5px #e0457b; } }
+  .cell.picked .piece { transform: scale(1.15); }
+  .cell.gote.picked .piece { transform: rotate(180deg) scale(1.15); }
+  .cell .piece { transition: transform 0.1s; }
+  .cell.just { animation: pop 0.45s ease-out; }
+  @keyframes pop { 0% { background: #fff6a8; box-shadow: inset 0 0 0 6px #fff; } }
+  .board.shake { animation: shake 0.4s; }
+  @keyframes shake { 20%, 60% { transform: translateX(-6px); } 40%, 80% { transform: translateX(6px); } }
+  .clear-title { font-size: 40px; font-weight: bold; color: #e0457b; animation: bounce-in 0.5s; }
+  @keyframes bounce-in {
+    0% { transform: scale(0.3); opacity: 0; }
+    60% { transform: scale(1.15); opacity: 1; }
+    100% { transform: scale(1); }
+  }
+  .clear-info { font: 16px sans-serif; color: #5a3d17; text-align: center; }
+  .clear-info .best { color: #e0457b; font-weight: bold; }
+  .confetti { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 10; }
+  .confetti span {
+    position: absolute;
+    top: -16px;
+    width: 8px;
+    height: 12px;
+    border-radius: 2px;
+    animation: fall linear forwards;
+  }
+  @keyframes fall { to { transform: translate(var(--x), 110vh) rotate(var(--r)); } }
+  .save-list .done { color: #1f6fd1; }
+  @media (prefers-reduced-motion: reduce) {
+    *, .confetti span { animation: none !important; transition: none !important; }
+    .confetti { display: none; }
+  }
 </style>
 </head>
 <body class="home">
@@ -221,6 +257,7 @@
     <button id="btn-home">ホーム</button>
   </div>
   <div class="game tools play-only">
+    <button id="btn-undo">1手戻す</button>
     <button id="btn-retry">やり直し</button>
     <button id="btn-edit">編集に戻る</button>
     <button id="btn-home-play">ホーム</button>
@@ -256,6 +293,24 @@
       </div>
     </div>
   </div>
+  <div class="overlay" id="clear-view" hidden>
+    <div class="panel">
+      <div class="clear-title">クリア！</div>
+      <div class="clear-info" id="clear-info"></div>
+      <div class="tools">
+        <button id="btn-next">次の問題</button>
+        <button id="btn-clear-retry">もう一度</button>
+        <button id="btn-clear-home">ホーム</button>
+      </div>
+    </div>
+  </div>
+  <div class="overlay" id="settings-view" hidden>
+    <div class="panel">
+      <h2>せってい</h2>
+      <div class="tools"><button id="btn-sound"></button></div>
+      <div class="tools"><button data-close>閉じる</button></div>
+    </div>
+  </div>
   <div class="game hint edit-only">
     【編集】駒をタップ → マス(または持ち駒欄)をタップで配置 / 駒を右クリックで成る<br>
     空きマスを右クリックでピンクにする / 「ピンク」→ マスをタップでピンク切り替え(駒があってもOK)<br>
@@ -265,7 +320,7 @@
     【プレイ】駒(または持ち駒)をタップ → 枠の付いたピンクのマスをタップで移動<br>
     敵陣に入る・敵陣から出るときは成ることができます<br>
     ピンクのマスにある相手の駒は取れます(取った駒は持ち駒になります)<br>
-    全部のピンクのマスを青にしたらクリア
+    全部のピンクのマスを青にしたらクリア / 「1手戻す」で何回でも戻せます
   </div>
 
 <script>
@@ -303,6 +358,9 @@
   // edit: { from: "palette" | "hand", kind, side } or { from: "erase" }
   // play: { from: "board", index } or { from: "hand", kind, side }
   let selected = null;
+  let history = []; // play: 1手ごとの snapshot (1手戻す用)
+  let lastMove = null; // { from: マス番号 | null(打つ), to } 次の描画でアニメーションする
+  let playContext = null; // みんなの問題から遊んでいるとき { items, index } (次の問題用)
 
   const boardEl = document.getElementById("board");
 
@@ -405,6 +463,7 @@
   function toggleSelect(sel) {
     const same = selected && ["from", "kind", "side", "index"].every(k => selected[k] === sel[k]);
     selected = same ? null : sel;
+    if (mode === "play" && selected) sound("select");
     render();
   }
 
@@ -481,7 +540,10 @@
     }
     if (result) return;
     if (selected && currentTargets().includes(i)) {
+      history.push(snapshot());
       cells[i] = "blue";
+      lastMove = { from: selected.from === "board" ? selected.index : null, to: i };
+      sound("move", cells.filter(c => c === "blue").length - 1);
       if (selected.from === "hand") {
         board[i] = { kind: selected.kind, side: selected.side, promoted: false };
         addToHand(selected.side, selected.kind, -1);
@@ -533,6 +595,19 @@
     selected = null;
     judge();
     render();
+    if (result === "clear") {
+      const rec = recordClear(history.length);
+      setTimeout(() => {
+        if (mode !== "play" || result !== "clear") return;
+        sound("clear");
+        showClear(rec);
+      }, 450);
+    } else if (result === "over") {
+      setTimeout(() => sound("over"), 250);
+      boardEl.classList.remove("shake");
+      void boardEl.offsetWidth; // アニメーションを最初から再生する
+      boardEl.classList.add("shake");
+    }
   }
 
   function answerPromotion(yes) {
@@ -574,6 +649,33 @@
       });
       boardEl.appendChild(cell);
     }
+    if (lastMove) animateMove(lastMove);
+    lastMove = null;
+  }
+
+  function animateMove({ from, to }) {
+    const cell = boardEl.children[to];
+    const piece = cell.querySelector(".piece");
+    cell.classList.add("just");
+    if (!piece || !piece.animate) return;
+    const rot = board[to].side === "gote" ? " rotate(180deg)" : "";
+    if (from === null) {
+      piece.animate([
+        { transform: "scale(1.8)" + rot, opacity: 0 },
+        { transform: "scale(1)" + rot, opacity: 1 },
+      ], { duration: 200, easing: "ease-out" });
+      return;
+    }
+    const size = cell.offsetWidth;
+    const dx = (from % 9 - to % 9) * size, dy = (Math.floor(from / 9) - Math.floor(to / 9)) * size;
+    piece.style.position = "relative";
+    piece.style.zIndex = 2;
+    piece.animate([
+      { transform: `translate(${dx}px, ${dy}px)${rot}` },
+      { transform: "translate(0, 0)" + rot },
+    ], { duration: Math.min(140 + Math.hypot(dx, dy) * 0.6, 320), easing: "ease-out" }).onfinish = () => {
+      piece.style.position = piece.style.zIndex = "";
+    };
   }
 
   function renderStatus() {
@@ -582,13 +684,13 @@
     if (mode !== "play") {
       el.textContent = "";
     } else if (result === "clear") {
-      el.textContent = "クリア！";
+      el.textContent = `クリア！（${history.length}手）`;
       el.classList.add("clear");
     } else if (result === "over") {
-      el.textContent = "ゲームオーバー（動けるマスがありません）";
+      el.textContent = "動けるマスがありません…「1手戻す」で戻れます";
       el.classList.add("over");
     } else {
-      el.textContent = `残りのピンク: ${cells.filter(c => c === "pink").length}`;
+      el.textContent = `残りのピンク: ${cells.filter(c => c === "pink").length} ・ ${history.length}手`;
     }
   }
 
@@ -600,6 +702,7 @@
     renderHand("sente");
     renderBoard();
     renderStatus();
+    document.getElementById("btn-undo").disabled = !history.length;
     for (const tool of ["erase", "pink"])
       document.getElementById("btn-" + tool).classList.toggle("selected", !!selected && selected.from === tool);
   }
@@ -629,20 +732,37 @@
     startState = snapshot();
     mode = "play";
     selected = null;
+    history = [];
     judge();
     render();
   }
 
-  document.getElementById("btn-start").addEventListener("click", startPlay);
+  document.getElementById("btn-start").addEventListener("click", () => {
+    playContext = null;
+    startPlay();
+  });
 
-  document.getElementById("btn-retry").addEventListener("click", () => {
+  function retry() {
     restore(startState);
     selected = null;
+    history = [];
+    judge();
+    render();
+  }
+
+  document.getElementById("btn-retry").addEventListener("click", retry);
+
+  document.getElementById("btn-undo").addEventListener("click", () => {
+    if (!history.length || mode !== "play") return;
+    restore(history.pop());
+    selected = null;
+    sound("undo");
     judge();
     render();
   });
 
   document.getElementById("btn-edit").addEventListener("click", () => {
+    playContext = null;
     restore(startState);
     mode = "edit";
     result = null;
@@ -744,6 +864,7 @@
   const detailView = document.getElementById("detail-view");
   let current = null;
   let currentList = "local"; // "local" | "public"
+  let currentItems = [];
 
   async function loadPublic() {
     try {
@@ -763,6 +884,8 @@
     detailView.hidden = true;
     listView.hidden = false;
     const items = isLocal ? loadSaves() : await loadPublic();
+    currentItems = items || [];
+    const clears = loadClears();
     if (!items || !items.length) {
       const li = document.createElement("div");
       li.className = "empty";
@@ -775,14 +898,19 @@
       const name = document.createElement("span");
       name.textContent = item.name;
       li.appendChild(name);
-      if (isLocal) {
+      const best = clears[puzzleKey(item)];
+      if (isLocal || best) {
         const date = document.createElement("span");
-        date.className = "date";
-        date.textContent = formatDate(item.savedAt);
+        date.className = "date" + (isLocal ? "" : " done");
+        date.textContent = isLocal ? formatDate(item.savedAt) : `✓ ${best}手`;
         li.appendChild(date);
       }
       li.addEventListener("click", () => showDetail(item));
       ul.appendChild(li);
+    }
+    if (!isLocal) {
+      const n = items.filter(item => clears[puzzleKey(item)]).length;
+      document.getElementById("list-title").textContent = `みんなの問題（クリア ${n}/${items.length}）`;
     }
   }
 
@@ -825,10 +953,10 @@
   document.getElementById("btn-list").addEventListener("click", () => showList("local"));
   document.getElementById("btn-home-public").addEventListener("click", () => showList("public"));
   document.getElementById("btn-home-create").addEventListener("click", () => {
+    playContext = null;
     mode = "edit";
     render();
   });
-  // せってい: 未実装 (ボタンのみ)
 
   function goHome() {
     if (mode === "play") restore(startState);
@@ -844,14 +972,157 @@
   document.getElementById("btn-back").addEventListener("click", () => showList(currentList));
 
   document.getElementById("btn-load").addEventListener("click", () => {
+    playContext = null;
     loadIntoEditor(current);
     render();
   });
 
   document.getElementById("btn-play").addEventListener("click", () => {
+    playContext = currentList === "public" ? { items: currentItems, index: currentItems.indexOf(current) } : null;
     loadIntoEditor(current);
     startPlay();
   });
+
+  // ---- クリア ----
+  const CLEARS_KEY = "shogi-clears"; // { 問題のキー: 最少手数 }
+  const clearView = document.getElementById("clear-view");
+
+  function puzzleKey(state) {
+    return encodePuzzle(toPuzzle(state, ""));
+  }
+
+  function loadClears() {
+    try {
+      return JSON.parse(localStorage.getItem(CLEARS_KEY)) || {};
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function recordClear(moves) {
+    const clears = loadClears();
+    const key = puzzleKey(startState);
+    const prev = clears[key];
+    if (!prev || moves < prev) {
+      clears[key] = moves;
+      try { localStorage.setItem(CLEARS_KEY, JSON.stringify(clears)); } catch (e) {}
+    }
+    return { moves, prev };
+  }
+
+  function nextPuzzle() {
+    return playContext && playContext.items[playContext.index + 1];
+  }
+
+  function showClear({ moves, prev }) {
+    const info = document.getElementById("clear-info");
+    info.textContent = `${moves}手でクリア`;
+    const note = document.createElement("div");
+    if (prev && moves < prev) {
+      note.className = "best";
+      note.textContent = `自己ベスト更新！（前回 ${prev}手）`;
+    } else if (prev) {
+      note.textContent = `ベスト ${prev}手`;
+    } else if (playContext && !nextPuzzle()) {
+      note.className = "best";
+      note.textContent = "これが最後の問題です！";
+    }
+    info.appendChild(note);
+    document.getElementById("btn-next").hidden = !nextPuzzle();
+    clearView.hidden = false;
+    confetti();
+  }
+
+  function confetti() {
+    const box = document.createElement("div");
+    box.className = "confetti";
+    const colors = ["#f6a5c0", "#a9cdf5", "#ffd56b", "#9be3a5", "#c9a7f5", "#e0457b"];
+    for (let k = 0; k < 90; k++) {
+      const s = document.createElement("span");
+      s.style.left = Math.random() * 100 + "%";
+      s.style.background = colors[k % colors.length];
+      s.style.animationDelay = Math.random() * 0.7 + "s";
+      s.style.animationDuration = 1.8 + Math.random() * 1.5 + "s";
+      s.style.setProperty("--x", (Math.random() * 2 - 1) * 120 + "px");
+      s.style.setProperty("--r", (Math.random() * 2 - 1) * 900 + "deg");
+      box.appendChild(s);
+    }
+    document.body.appendChild(box);
+    setTimeout(() => box.remove(), 4500);
+  }
+
+  document.getElementById("btn-next").addEventListener("click", () => {
+    clearView.hidden = true;
+    playContext.index++;
+    loadIntoEditor(playContext.items[playContext.index]);
+    startPlay();
+  });
+  document.getElementById("btn-clear-retry").addEventListener("click", () => {
+    clearView.hidden = true;
+    retry();
+  });
+  document.getElementById("btn-clear-home").addEventListener("click", () => {
+    clearView.hidden = true;
+    goHome();
+  });
+
+  // ---- 効果音・せってい ----
+  const SETTINGS_KEY = "shogi-settings";
+  const settings = { sound: true };
+  try { Object.assign(settings, JSON.parse(localStorage.getItem(SETTINGS_KEY))); } catch (e) {}
+  let audio = null;
+
+  function tone(freq, start, dur, type = "triangle", vol = 0.2) {
+    const t = audio.currentTime + start;
+    const osc = audio.createOscillator();
+    const gain = audio.createGain();
+    osc.type = type;
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(vol, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    osc.connect(gain).connect(audio.destination);
+    osc.start(t);
+    osc.stop(t + dur);
+  }
+
+  // step: 何マス目を青にしたか。進むほど音が高くなる
+  function sound(name, step = 0) {
+    if (!settings.sound) return;
+    try {
+      audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+      if (audio.state === "suspended") audio.resume();
+    } catch (e) {
+      return;
+    }
+    if (name === "select") tone(1200, 0, 0.04, "square", 0.04);
+    if (name === "move") {
+      const PENTA = [0, 2, 4, 7, 9];
+      const s = Math.min(step, 14);
+      const semi = PENTA[s % 5] + 12 * Math.floor(s / 5);
+      tone(150, 0, 0.07, "square", 0.12);
+      tone(523 * 2 ** (semi / 12), 0.02, 0.3);
+    }
+    if (name === "undo") tone(330, 0, 0.1, "sine", 0.15);
+    if (name === "clear") [523, 659, 784, 1047, 1319].forEach((f, k) => tone(f, k * 0.1, k === 4 ? 0.8 : 0.2));
+    if (name === "over") [392, 349, 262].forEach((f, k) => tone(f, k * 0.18, 0.35, "sawtooth", 0.06));
+  }
+
+  const settingsView = document.getElementById("settings-view");
+  const soundBtn = document.getElementById("btn-sound");
+  function renderSettings() {
+    soundBtn.textContent = "効果音: " + (settings.sound ? "ON" : "OFF");
+  }
+  soundBtn.addEventListener("click", () => {
+    settings.sound = !settings.sound;
+    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch (e) {}
+    renderSettings();
+    sound("select");
+  });
+  document.getElementById("btn-home-settings").addEventListener("click", () => {
+    renderSettings();
+    settingsView.hidden = false;
+  });
+  document.querySelector("#settings-view [data-close]").addEventListener("click", () => { settingsView.hidden = true; });
 
   document.getElementById("btn-share").addEventListener("click", () => {
     const url = location.origin + location.pathname + "#p=" + encodePuzzle(toPuzzle(current, current.name));
