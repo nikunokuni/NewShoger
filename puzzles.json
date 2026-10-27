@@ -33,5 +33,6 @@
   {"name":"桂","level":1,"pieces":[[77,"桂","sente",0],[79,"桂","sente",0]],"pink":[41,43,58,60],"hands":{"sente":{},"gote":{}}},
   {"name":"銀桂","level":2,"pieces":[[12,"桂","gote",0],[21,"銀","gote",0],[30,"歩","sente",0]],"pink":[12,21,47,50,55,57,65,67],"hands":{"sente":{},"gote":{}}},
   {"name":"二歩","level":2,"pieces":[[49,"歩","sente",0],[60,"歩","gote",0],[80,"角","sente",0]],"pink":[22,31,40,49,58,60],"hands":{"sente":{},"gote":{}}},
-  {"name":"桂馬の里帰り","level":2,"pieces":[[6,"銀","gote",0],[76,"桂","sente",0]],"pink":[4,6,13,14,23,42,59,75],"hands":{"sente":{},"gote":{}}}
+  {"name":"桂馬の里帰り","level":2,"pieces":[[6,"銀","gote",0],[76,"桂","sente",0]],"pink":[4,6,13,14,23,42,59,75],"hands":{"sente":{},"gote":{}}},
+  {"name":"銀","level":3,"pieces":[[58,"銀","sente",0]],"pink":[39,48,49,50,57,58,59,66,67,68,75],"hands":{"sente":{},"gote":{}}}
 ]
