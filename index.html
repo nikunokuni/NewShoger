@@ -1000,6 +1000,8 @@
       const inLevel = items.filter(p => p.level === level);
       const done = inLevel.filter(p => clears[puzzleKey(p)]).length;
       count.textContent = done ? `✓ ${done}/${inLevel.length}問` : inLevel.length + "問";
+      // レベル5は将棋走の駒8種類 (問題データはないので表記だけ)
+      if (level === 5) count.textContent = "8問";
       li.append(name, count);
       li.addEventListener("click", () => showList("public", level));
       ul.appendChild(li);
