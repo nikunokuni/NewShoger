@@ -28,5 +28,12 @@
     "pieces": [[76, "金", "sente", 0]],
     "pink": [58, 66, 67, 68],
     "hands": { "sente": {}, "gote": {} }
+  },
+  {
+    "name": "桂",
+    "level": 1,
+    "pieces": [[77, "桂", "sente", 0], [79, "桂", "sente", 0]],
+    "pink": [41, 43, 58, 60],
+    "hands": { "sente": {}, "gote": {} }
   }
 ]
