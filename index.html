@@ -254,6 +254,9 @@
   }
   @keyframes fall { to { transform: translate(var(--x), 110vh) rotate(var(--r)); } }
   .save-list .done { color: #1f6fd1; }
+  .high-scores { font: 15px sans-serif; color: #5a3d17; margin: 8px 0; }
+  .high-scores h3 { font-size: 15px; margin: 0 0 4px; text-align: center; }
+  .high-scores ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, auto); gap: 2px 16px; justify-content: center; }
   @media (prefers-reduced-motion: reduce) {
     *, .confetti span { animation: none !important; transition: none !important; }
     .confetti { display: none; }
@@ -349,6 +352,10 @@
     <div class="panel">
       <h2>せってい</h2>
       <div class="tools"><button id="btn-sound"></button></div>
+      <div class="high-scores" id="high-scores" hidden>
+        <h3>レベル5 ハイスコア</h3>
+        <ul id="high-score-list"></ul>
+      </div>
       <div class="tools"><button data-close>閉じる</button></div>
     </div>
   </div>
@@ -636,11 +643,11 @@
     judge();
     render();
     if (result === "clear") {
-      const rec = recordClear(history.length);
+      recordClear();
       setTimeout(() => {
         if (mode !== "play" || result !== "clear") return;
         sound("clear");
-        showClear(rec);
+        showClear();
       }, 450);
     } else if (result === "over") {
       setTimeout(() => sound("over"), 250);
@@ -724,13 +731,13 @@
     if (mode !== "play") {
       el.textContent = "";
     } else if (result === "clear") {
-      el.textContent = `クリア！（${history.length}手）`;
+      el.textContent = "クリア！";
       el.classList.add("clear");
     } else if (result === "over") {
       el.textContent = "動けるマスがありません…「1手戻す」で戻れます";
       el.classList.add("over");
     } else {
-      el.textContent = `残りのピンク: ${cells.filter(c => c === "pink").length} ・ ${history.length}手`;
+      el.textContent = `残りのピンク: ${cells.filter(c => c === "pink").length}`;
     }
     document.getElementById("btn-next").hidden = !(mode === "play" && result === "clear" && nextPuzzle());
   }
@@ -1034,11 +1041,10 @@
       name.textContent = item.name;
       li.appendChild(name);
       if (kind === "public") li.appendChild(thumbEl(item));
-      const best = clears[puzzleKey(item)];
-      if (isLocal || best) {
+      if (isLocal || clears[puzzleKey(item)]) {
         const date = document.createElement("span");
         date.className = "date" + (isLocal ? "" : " done");
-        date.textContent = isLocal ? formatDate(item.savedAt) : `✓ ${best}手`;
+        date.textContent = isLocal ? formatDate(item.savedAt) : "✓";
         li.appendChild(date);
       }
       li.addEventListener("click", () => showDetail(item));
@@ -1191,31 +1197,24 @@
     }
   }
 
-  function recordClear(moves) {
+  // 手数は問題ごとに必ず同じなので、クリアしたかどうかだけ記録する
+  function recordClear() {
     const clears = loadClears();
     const key = puzzleKey(startState);
-    const prev = clears[key];
-    if (!prev || moves < prev) {
-      clears[key] = moves;
-      try { localStorage.setItem(CLEARS_KEY, JSON.stringify(clears)); } catch (e) {}
-    }
-    return { moves, prev };
+    if (clears[key]) return;
+    clears[key] = 1;
+    try { localStorage.setItem(CLEARS_KEY, JSON.stringify(clears)); } catch (e) {}
   }
 
-  function showClear({ moves, prev }) {
+  function showClear() {
     const info = document.getElementById("clear-info");
-    info.textContent = `${moves}手でクリア`;
-    const note = document.createElement("div");
-    if (prev && moves < prev) {
-      note.className = "best";
-      note.textContent = `自己ベスト更新！（前回 ${prev}手）`;
-    } else if (prev) {
-      note.textContent = `ベスト ${prev}手`;
-    } else if (playList && !nextPuzzle()) {
+    info.textContent = "";
+    if (playList && !nextPuzzle()) {
+      const note = document.createElement("div");
       note.className = "best";
       note.textContent = "これが最後の問題です！";
+      info.appendChild(note);
     }
-    info.appendChild(note);
     document.getElementById("btn-clear-next").hidden = !nextPuzzle();
     clearView.hidden = false;
     confetti();
@@ -1297,6 +1296,25 @@
   const soundBtn = document.getElementById("btn-sound");
   function renderSettings() {
     soundBtn.textContent = "効果音: " + (settings.sound ? "ON" : "OFF");
+    renderHighScores();
+  }
+
+  // レベル5 (将棋走) のハイスコア。将棋走が localStorage の shorisou.best.<駒id> に保存している
+  const SHORISOU_PIECES = [["fu", "歩兵"], ["kyo", "香車"], ["kei", "桂馬"], ["gin", "銀将"],
+    ["kin", "金将"], ["kaku", "角行"], ["hisha", "飛車"], ["ou", "王将"]];
+  function renderHighScores() {
+    const list = document.getElementById("high-score-list");
+    list.innerHTML = "";
+    for (const [id, name] of SHORISOU_PIECES) {
+      let best = 0;
+      try { best = Number(localStorage.getItem("shorisou.best." + id)) || 0; } catch (e) {}
+      if (!best) continue;
+      const li = document.createElement("li");
+      li.textContent = `${name}　${best} 点`;
+      list.appendChild(li);
+    }
+    // 記録が1つもないときは表示しない
+    document.getElementById("high-scores").hidden = !list.children.length;
   }
   soundBtn.addEventListener("click", () => {
     settings.sound = !settings.sound;
