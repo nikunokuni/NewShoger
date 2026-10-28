@@ -1187,8 +1187,10 @@
   const CLEARS_KEY = "shogi-clears"; // { 問題のキー: 最少手数 }
   const clearView = document.getElementById("clear-view");
 
+  // プレイ中の盤面 (startState) はレベルを持たないので、キーにはレベルを含めない。
+  // 以前の記録はすべて level 1 で保存されているので、互換のため 1 に固定する
   function puzzleKey(state) {
-    return encodePuzzle(toPuzzle(state, ""));
+    return encodePuzzle({ ...toPuzzle(state, ""), level: 1 });
   }
 
   function loadClears() {
