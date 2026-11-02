@@ -482,10 +482,11 @@
   }
 
   function anyMove() {
-    for (let i = 0; i < 81; i++) if (board[i] && targetsFrom(i).length) return true;
-    for (const side of ["sente", "gote"])
-      for (const kind in hands[side])
-        if (dropTargets(kind, side).length) return true;
+    // 動かせるのは自分(先手)の駒だけ
+    for (let i = 0; i < 81; i++)
+      if (board[i] && board[i].side === "sente" && targetsFrom(i).length) return true;
+    for (const kind in hands.sente)
+      if (dropTargets(kind, "sente").length) return true;
     return false;
   }
 
@@ -559,7 +560,7 @@
       if (isSelected("hand", kind, side)) slot.classList.add("selected");
       slot.addEventListener("click", e => {
         e.stopPropagation();
-        if (mode === "play" && result) return;
+        if (mode === "play" && (result || side !== "sente")) return;
         if (selected && selected.from === "erase") {
           addToHand(side, kind, -1);
           render();
@@ -614,7 +615,8 @@
       finishMove();
       return;
     }
-    if (board[i]) toggleSelect({ from: "board", index: i });
+    // 相手(後手)の駒は動かせない
+    if (board[i] && board[i].side === "sente") toggleSelect({ from: "board", index: i });
     else if (selected) { selected = null; render(); }
   }
 
